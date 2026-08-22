@@ -152,7 +152,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   td.c-score .bar{display:none}
   td.c-24h{order:3} td.c-1h{order:4} td.c-4h{order:5}
   td.c-surge{order:6} td.c-pos{order:7} td.c-price{order:8} td.c-vol{order:9}
-  td.c-spread,td.c-hi{display:none}
+  td.c-spread,td.c-hi,td.c-fired{display:none}
   td.c-spark{order:10;flex:1 1 auto;margin-top:2px}
   td.c-trade{order:11;margin-left:auto;margin-top:2px}
   td.c-trade a{font-size:12px}
@@ -199,6 +199,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <div class="f" id="wChgMax"><label>Max 24h chg %</label><input id="fChgMax" type="number" value="300" step="10"></div>
   <div class="f" id="wPos"><label>Min range pos %</label><input id="fPos" type="number" value="55" step="5"></div>
   <div class="f"><label>Max spread %</label><input id="fSpread" type="number" value="0.6" step="0.1"></div>
+  <div class="f off" id="wIgMin"><label>⚡ min spike ×</label><input id="fIgMin" type="number" value="2.5" step="0.5"></div>
   <div class="f"><label>Scan depth</label><input id="fDepth" type="number" value="45" step="15" min="10" max="150"></div>
   <div class="f"><label>Rows shown</label><input id="fRows" type="number" value="25" step="5"></div>
 </div>
@@ -210,6 +211,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <button id="btnUpOnly" class="on">↑ 1h+ only</button>
   <div class="f"><label>Alert if score ≥</label><input id="aScore" type="number" value="75" step="5"></div>
   <div class="f"><label>…or surge ≥</label><input id="aSurge" type="number" value="3" step="0.5"></div>
+  <div class="f" id="wIgA"><label>⚡ fired within</label><input id="aIgAge" type="number" value="10" step="5"></div>
   <div class="f"><label>Re-alert after</label>
     <select id="aCool"><option value="300">5 min</option><option value="600" selected>10 min</option>
     <option value="1800">30 min</option><option value="0">never</option></select></div>
@@ -251,10 +253,11 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <th data-k="rangePos">Range pos</th>
   <th data-k="spread">Spread</th>
   <th data-k="pull">From hi</th>
+  <th data-k="fired" id="hFired">⚡ Fired</th>
   <th class="l" id="hSpark">15m trend</th>
   <th class="l">Trade</th>
 </tr></thead>
-<tbody id="tb"><tr><td colspan="13" class="empty">Loading Bitget spot markets…</td></tr></tbody>
+<tbody id="tb"><tr><td colspan="14" class="empty">Loading Bitget spot markets…</td></tr></tbody>
 </table></div>
 
 <div class="legend" id="legend"></div>
@@ -306,12 +309,17 @@ function modeFilterState(){
   $('wChgMax').classList.toggle('off',m!=='24h');
   $('wPos').classList.toggle('off',m==='surge'||m==='4h'||m==='1h');
   $('modeHint').innerHTML=MODES[m].hint;
+  const ig=m==='ignite';
+  $('wIgMin').classList.toggle('off',!ig); $('wIgA').classList.toggle('off',!ig);
+  document.getElementById('aScore').parentElement.classList.toggle('off',ig);
+  document.getElementById('aSurge').parentElement.classList.toggle('off',ig);
+  $('hFired').classList.toggle('key',ig);
   ['h24','h4','h1','hS'].forEach(h=>$(h).classList.remove('key'));
   $(MODES[m].hcol).classList.add('key');
 }
 
 /* ================= persistence ================= */
-const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin'];
+const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge'];
 function saveCfg(){const o={};FIELDS.forEach(f=>o[f]=$(f).value);
   Object.assign(o,{mode:S.mode,autoOn:S.autoOn,alertOn:S.alertOn,soundOn:S.soundOn,cryptoOnly:S.cryptoOnly,upOnly:S.upOnly,
     sortK:S.sortK,sortD:S.sortD});
@@ -379,7 +387,7 @@ async function getCandles(sym,gran,lim){
   if(!r.ok)return null;
   const j=await r.json();
   if(j.code!=='00000'||!j.data||j.data.length<12)return null;
-  return j.data.map(c=>({o:num(c[1]),c:num(c[4]),h:num(c[2]),l:num(c[3]),v:num(c[7]||c[6])}));
+  return j.data.map(c=>({t:num(c[0]),o:num(c[1]),c:num(c[4]),h:num(c[2]),l:num(c[3]),v:num(c[7]||c[6])}));
 }
 async function pool(items,fn,n=5){
   const out=[];let i=0;
@@ -553,11 +561,12 @@ function analyzeIgnite(k){
   const cl=k.map(x=>x.c),op=k.map(x=>x.o),vo=k.map(x=>x.v),n=cl.length;
   const base=i=>{const w=vo.slice(Math.max(0,i-20),i);return w.length?w.reduce((a,b)=>a+b,0)/w.length:0};
   // strongest volume bar in the last 6 (=30 min) is treated as the ignition bar
+  const FLOOR=1.5;            // below this it is ordinary volume, not an ignition
   let bi=-1,bratio=0;
   for(let i=Math.max(20,n-6);i<n;i++){
     const b=base(i); if(b<=0)continue;
     const rr=vo[i]/b;
-    if(rr>bratio&&cl[i]>=op[i]){bratio=rr;bi=i}
+    if(rr>bratio&&rr>=FLOOR&&cl[i]>=op[i]){bratio=rr;bi=i}
   }
   const last=cl[n-1];
   const chg15=(last/cl[Math.max(0,n-4)]-1)*100;    // 3 bars
@@ -568,7 +577,7 @@ function analyzeIgnite(k){
     stack:last>cl[Math.max(0,n-4)]&&cl[Math.max(0,n-4)]>cl[Math.max(0,n-9)],
     pull:(last/Math.max(...k.slice(-12).map(x=>x.h))-1)*100,
     coil:false,
-    ig:{ratio:bratio, ageMin:bi<0?null:(n-1-bi)*5, curRatio:cur,
+    ig:{ratio:bratio, ageMin:bi<0?null:(n-1-bi)*5, curRatio:cur, ts:bi<0?null:k[bi].t,
         held:bi<0?null:(last/cl[bi]-1)*100},
     spark:cl.slice(-24), vspark:vo.slice(-24)
   };
@@ -628,6 +637,15 @@ function sortRows(rows){
   return rows.sort((a,b)=>{
     if(k==='symbol')return a.symbol.localeCompare(b.symbol)*d*-1;
     let x,y;
+    if(k==='fired'){
+      const g=r=>(r.deep&&r.deep.ig&&r.deep.ig.ageMin!=null)?r.deep.ig.ageMin:Infinity;
+      const av=g(a),bv=g(b);
+      if(av===bv){  // same bar -> stronger spike first
+        const s_=r=>(r.deep&&r.deep.ig)?r.deep.ig.ratio:0;
+        return s_(b)-s_(a);
+      }
+      return (av-bv)*(d===-1?1:-1);   // default click = freshest first
+    }
     if(k==='score'){x=a._s;y=b._s;}
     else if(['mom1h','mom4h','volSurge','pull'].includes(k)){
       x=a.deep?a.deep[k]:-Infinity;y=b.deep?b.deep[k]:-Infinity;}
@@ -687,7 +705,12 @@ async function run(){
       r._s=score(r); return r;
     }).filter(r=>(S.mode!=='surge'&&S.mode!=='ignite')||r.deep);
 
-    univ.sort((a,b)=>b._s-a._s);
+    if(S.mode==='ignite'){
+      const minR=num($('fIgMin').value)||2.5;
+      univ=univ.filter(r=>r.deep&&r.deep.ig&&r.deep.ig.ageMin!=null&&r.deep.ig.ratio>=minR);
+      const age=r=>r.deep.ig.ageMin, rat=r=>r.deep.ig.ratio;
+      univ.sort((a,b)=>(age(a)-age(b))||(rat(b)-rat(a)));
+    } else univ.sort((a,b)=>b._s-a._s);
     S.rows=univ.slice(0,clamp(num($('fRows').value)||25,5,150));
     if(S.mode==='surge'||S.mode==='ignite')
       $('nDeep').textContent=`${short.length} (covered ${S.cover.size}/${pass.length})`;
@@ -715,19 +738,27 @@ function checkAlerts(rows){
   const minS=num($('aScore').value),minV=num($('aSurge').value);
   const cool=num($('aCool').value)*1000,now=Date.now();
   S.hits.clear();
+  const IG=S.mode==='ignite';
+  const igA=num($('aIgAge').value);
   const qualifies=r=>{
     const d=r.deep;
-    // an alert is an invitation to look at a chart — a pair already rolling
-    // over on the hour is not one, so it's suppressed by default
     if(S.upOnly&&d&&d.mom1h<0)return[false,false];
+    if(IG){
+      // fire on a fresh ignition of sufficient size
+      const g=d&&d.ig;
+      const ok=!!(g&&g.ageMin!=null&&g.ageMin<=igA);
+      return [ok,false];
+    }
     return [r._s>=minS, d&&minV>0&&d.volSurge>=minV];
   };
+  // each distinct ignition bar alerts once, so a still-fresh signal doesn't re-fire
+  const akey=r=>(IG&&r.deep&&r.deep.ig&&r.deep.ig.ts)?r.symbol+'@'+r.deep.ig.ts:r.symbol;
   // First pass after arming: record the current state as the baseline and stay
   // silent, so you only get alerted on pairs that cross *after* you armed.
   const sweeping = S.mode==='surge' && S.cover.size < S.poolSize;
   if(S.arm||sweeping){
     let n=0;
-    rows.forEach(r=>{const[a,b]=qualifies(r);if(a||b){S.lastAlert.set(r.symbol,now);n++}});
+    rows.forEach(r=>{const[a,b]=qualifies(r);if(a||b){S.lastAlert.set(akey(r),now);n++}});
     S.arm=false;
     const t=new Date().toLocaleTimeString();
     if(sweeping)
@@ -742,13 +773,19 @@ function checkAlerts(rows){
   rows.forEach(r=>{
     const[hitScore,hitSurge]=qualifies(r);
     if(!hitScore&&!hitSurge)return;
-    const prev=S.lastAlert.get(r.symbol)||0;
-    if(cool===0&&prev)return;
-    if(cool>0&&now-prev<cool)return;
-    S.lastAlert.set(r.symbol,now);
+    const kk=akey(r), prev=S.lastAlert.get(kk)||0;
+    if(IG){ if(prev)return; }                 // one alert per ignition event
+    else { if(cool===0&&prev)return;
+           if(cool>0&&now-prev<cool)return; }
+    S.lastAlert.set(kk,now);
     S.hits.add(r.symbol);
     const why=[];
-    if(hitScore)why.push('score '+r._s.toFixed(0));
+    if(IG&&r.deep&&r.deep.ig){
+      why.push(`\u26a1 ${r.deep.ig.ratio.toFixed(1)}\u00d7 spike`);
+      why.push(r.deep.ig.ageMin===0?'just now':r.deep.ig.ageMin+'m ago');
+      why.push('15m '+sign(r.deep.mom1h)+'%');
+    }
+    else if(hitScore)why.push('score '+r._s.toFixed(0));
     if(hitSurge)why.push('surge '+r.deep.volSurge.toFixed(1)+'\u00d7');
     if(r.deep&&r.deep.coil)why.push('coiling');
     if(r.deep&&r.deep.mom1h<-1.5)why.push('\u26a0 1h negative');
@@ -761,7 +798,7 @@ function checkAlerts(rows){
   if(fired.length>MAX)
     S.feed.unshift({t,s:'+'+(fired.length-MAX),why:'more crossed (raise your thresholds to narrow this)'});
   S.feed=S.feed.slice(0,30);
-  beep(show[0].r._s>=85);
+  beep(S.mode==='ignite'?true:show[0].r._s>=85);
   document.title=`(${fired.length}) Bitget Screener`;
   setTimeout(()=>document.title='Bitget Spot Momentum Screener',6000);
   renderFeed();
@@ -795,7 +832,7 @@ function render(){
   const rows=sortRows(S.rows.slice()),tb=$('tb');
   $('hSpark').textContent=S.mode==='surge'?'15m volume':'15m trend';
   if(!rows.length){
-    tb.innerHTML='<tr><td colspan="13" class="empty">No pairs match. Loosen <b>min volume</b>'+
+    tb.innerHTML='<tr><td colspan="14" class="empty">No pairs match. Loosen <b>min volume</b>'+
       (S.mode==='24h'?' or <b>min range pos</b>':'')+', or raise <b>scan depth</b>.</td></tr>';
     return;}
   const nowSet=new Set(rows.map(r=>r.symbol));
@@ -824,6 +861,8 @@ function render(){
         <span class="${r.rangePos>=70?'up':r.rangePos<40?'down':'dim'}"> ${r.rangePos.toFixed(0)}%</span></td>
       <td class="c-spread ${r.spread<=0.2?'':'dim'}" data-l="spread">${r.spread.toFixed(2)}%</td>
       <td class="c-hi ${d?(d.pull>-2?'up':d.pull<-6?'down':'dim'):'dim'}" data-l="from hi">${d?d.pull.toFixed(1)+'%':'–'}</td>
+      <td class="c-fired ${d&&d.ig&&d.ig.ageMin!=null?(d.ig.ageMin<=5?'up':d.ig.ageMin<=15?'':'dim'):'dim'}" data-l="fired">${
+        d&&d.ig&&d.ig.ageMin!=null?(d.ig.ageMin===0?'now':d.ig.ageMin+'m'):'–'}</td>
       <td class="l c-spark">${S.mode==='surge'?sparkVol(d&&d.vspark):sparkLine(d&&d.spark)}</td>
       <td class="l c-trade"><a class="tl" target="_blank" rel="noopener"
         href="https://www.bitget.com/spot/${r.symbol}">chart ↗</a></td></tr>`;
@@ -889,14 +928,15 @@ $('btnUpOnly').onclick=e=>{S.upOnly=!S.upOnly;e.target.className=S.upOnly?'on':'
   if(S.alertOn){S.lastAlert.clear();S.arm=true}saveCfg();renderFeed()};
 document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#modes button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on');const wasIg=S.mode==='ignite';S.mode=b.dataset.m;S.sortK='score';
+  b.classList.add('on');const wasIg=S.mode==='ignite';S.mode=b.dataset.m;
+  S.sortK=S.mode==='ignite'?'fired':'score';
   S.cursor=0;S.cover.clear();
   if(wasIg!==(S.mode==='ignite'))S.deep.clear();  // 5m and 15m data are not interchangeable
   if(S.mode!=='24h'&&num($('fDepth').value)<60)$('fDepth').value=75;
   modeFilterState();saveCfg();run()});
 FIELDS.forEach(f=>$(f).addEventListener('change',()=>{saveCfg();
   if(f==='lMin'){renderLog();return}
-  if(['aScore','aSurge','aCool'].includes(f)){
+  if(['aScore','aSurge','aCool','aIgAge'].includes(f)){
     if(S.alertOn){S.lastAlert.clear();S.arm=true}
     renderFeed();return}
   run()}));

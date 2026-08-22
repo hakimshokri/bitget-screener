@@ -89,6 +89,7 @@ tbody tr:hover{background:#141a26}
 .b-stack{background:rgba(22,199,132,.16);color:var(--up)}
 .b-fade{background:rgba(234,57,67,.16);color:var(--down)}
 .b-coil{background:rgba(169,123,255,.16);color:var(--vio)}
+.b-ig{background:rgba(240,185,11,.22);color:#ffd351}
 .scorecell{font-weight:700;font-size:13px}
 .bar{height:4px;background:#1c2434;border-radius:2px;overflow:hidden;width:48px;
   display:inline-block;vertical-align:middle;margin-left:6px}
@@ -188,6 +189,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
       <button data-m="4h">4h</button>
       <button data-m="1h">1h</button>
       <button data-m="surge">Vol surge</button>
+      <button data-m="ignite">⚡ Ignite</button>
     </div></div>
   <div class="f"><label>Quote</label>
     <select id="fQuote"><option value="USDT">USDT</option><option value="USDC">USDC</option>
@@ -285,6 +287,12 @@ const MODES={
     w:{mom:.45,vol:.25,pos:.12,chg:.05,liq:.13}, blend:[.85,.15],
     pre:r=>r.rangePos>=72
   },
+  'ignite':{
+    key:'volSurge', hcol:'hS', tf:'5min',
+    hint:'<b>Ignition (5m)</b> \u2014 hunts the moment a move starts: a 5-minute bar closing green on a volume spike. Fires far earlier than the other modes, and far more often on nothing. Read <b>Vol surge</b> as the spike size and the <b>IGNITE</b> badge for how long ago it fired.',
+    w:{mom:.25,vol:.45,pos:.08,chg:.02,liq:.20}, blend:[.8,.2],
+    pre:r=>true
+  },
   'surge':{
     key:'volSurge', hcol:'hS',
     hint:'<b>Volume surge</b> — ranks purely on volume expansion, ignoring price entirely. Finds accumulation: volume exploding while price is still flat. Sweeps the market in a rotating window each refresh, so coverage builds over the first few minutes. The earliest signal here, and the noisiest.',
@@ -366,12 +374,12 @@ async function loadMeta(){
     S.metaOk=true;
   }catch(e){}
 }
-async function getCandles(sym){
-  const r=await fetch(`${API}/candles?symbol=${sym}&granularity=15min&limit=40`,{cache:'no-store'});
+async function getCandles(sym,gran,lim){
+  const r=await fetch(`${API}/candles?symbol=${sym}&granularity=${gran||'15min'}&limit=${lim||40}`,{cache:'no-store'});
   if(!r.ok)return null;
   const j=await r.json();
   if(j.code!=='00000'||!j.data||j.data.length<12)return null;
-  return j.data.map(c=>({c:num(c[4]),h:num(c[2]),l:num(c[3]),v:num(c[7]||c[6])}));
+  return j.data.map(c=>({o:num(c[1]),c:num(c[4]),h:num(c[2]),l:num(c[3]),v:num(c[7]||c[6])}));
 }
 async function pool(items,fn,n=5){
   const out=[];let i=0;
@@ -540,6 +548,32 @@ function renderBreadth(){
   else w.innerHTML='';
 }
 
+/* ================= ignition (5m) ================= */
+function analyzeIgnite(k){
+  const cl=k.map(x=>x.c),op=k.map(x=>x.o),vo=k.map(x=>x.v),n=cl.length;
+  const base=i=>{const w=vo.slice(Math.max(0,i-20),i);return w.length?w.reduce((a,b)=>a+b,0)/w.length:0};
+  // strongest volume bar in the last 6 (=30 min) is treated as the ignition bar
+  let bi=-1,bratio=0;
+  for(let i=Math.max(20,n-6);i<n;i++){
+    const b=base(i); if(b<=0)continue;
+    const rr=vo[i]/b;
+    if(rr>bratio&&cl[i]>=op[i]){bratio=rr;bi=i}
+  }
+  const last=cl[n-1];
+  const chg15=(last/cl[Math.max(0,n-4)]-1)*100;    // 3 bars
+  const chg60=(last/cl[Math.max(0,n-13)]-1)*100;   // 12 bars
+  const cur=base(n-1)>0?vo[n-1]/base(n-1):0;
+  return{
+    mom1h:chg15, mom4h:chg60, volSurge:bratio||cur,
+    stack:last>cl[Math.max(0,n-4)]&&cl[Math.max(0,n-4)]>cl[Math.max(0,n-9)],
+    pull:(last/Math.max(...k.slice(-12).map(x=>x.h))-1)*100,
+    coil:false,
+    ig:{ratio:bratio, ageMin:bi<0?null:(n-1-bi)*5, curRatio:cur,
+        held:bi<0?null:(last/cl[bi]-1)*100},
+    spark:cl.slice(-24), vspark:vo.slice(-24)
+  };
+}
+
 /* ================= scoring ================= */
 function score(r){
   const M=MODES[S.mode],w=M.w,d=r.deep;
@@ -618,7 +652,7 @@ async function run(){
     pass.forEach(r=>r._s=score(r));
 
     let short;
-    if(S.mode==='surge'){
+    if(S.mode==='surge'||S.mode==='ignite'){
       // Volume surges can appear anywhere, so sweep the pool in a rotating
       // window instead of only ever scanning the biggest names.
       pass.sort((a,b)=>a.symbol.localeCompare(b.symbol));
@@ -637,22 +671,25 @@ async function run(){
 
     if(short.length){
       $('status').textContent=`deep scan ${short.length}\u2026`;
-      const ks=await pool(short.map(r=>r.symbol),getCandles,5);
+      const IG=S.mode==='ignite';
+      const ks=await pool(short.map(r=>r.symbol),
+        sym=>getCandles(sym,IG?'5min':'15min',IG?40:40),5);
       const now=Date.now();
-      ks.forEach((k,i)=>{if(k){const a=analyze(k);a.ts=now;S.deep.set(short[i].symbol,a)}});
+      ks.forEach((k,i)=>{if(k){const a=IG?analyzeIgnite(k):analyze(k);a.ts=now;
+        S.deep.set(short[i].symbol,a)}});
     }
 
     // rank across everything we hold fresh candle data for, not just this window
     const FRESH=6*60*1000, tnow=Date.now();
-    let univ=(S.mode==='surge'?pass:short).map(r=>{
+    let univ=((S.mode==='surge'||S.mode==='ignite')?pass:short).map(r=>{
       const d=S.deep.get(r.symbol);
       r.deep=(d&&tnow-(d.ts||0)<FRESH)?d:null;
       r._s=score(r); return r;
-    }).filter(r=>S.mode!=='surge'||r.deep);
+    }).filter(r=>(S.mode!=='surge'&&S.mode!=='ignite')||r.deep);
 
     univ.sort((a,b)=>b._s-a._s);
     S.rows=univ.slice(0,clamp(num($('fRows').value)||25,5,150));
-    if(S.mode==='surge')
+    if(S.mode==='surge'||S.mode==='ignite')
       $('nDeep').textContent=`${short.length} (covered ${S.cover.size}/${pass.length})`;
 
     const pxMap=new Map(raw.map(t=>[t.symbol,num(t.lastPr)]));
@@ -767,6 +804,7 @@ function render(){
     const base=r.symbol.replace(/(USDT|USDC|BTC|ETH)$/,''),quote=r.symbol.slice(base.length);
     let b='';
     if(isNew)b+='<span class="badge b-new">NEW</span>';
+    if(d&&d.ig&&d.ig.ageMin!=null)b+=`<span class="badge b-ig">\u26a1 ${d.ig.ageMin===0?'NOW':d.ig.ageMin+'m ago'}</span>`;
     if(d&&d.coil)b+='<span class="badge b-coil">COIL</span>';
     if(d&&d.stack)b+='<span class="badge b-stack">STACK</span>';
     if(d&&d.volSurge>=2)b+='<span class="badge b-surge">SURGE</span>';
@@ -851,7 +889,9 @@ $('btnUpOnly').onclick=e=>{S.upOnly=!S.upOnly;e.target.className=S.upOnly?'on':'
   if(S.alertOn){S.lastAlert.clear();S.arm=true}saveCfg();renderFeed()};
 document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#modes button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on');S.mode=b.dataset.m;S.sortK='score';S.cursor=0;S.cover.clear();
+  b.classList.add('on');const wasIg=S.mode==='ignite';S.mode=b.dataset.m;S.sortK='score';
+  S.cursor=0;S.cover.clear();
+  if(wasIg!==(S.mode==='ignite'))S.deep.clear();  // 5m and 15m data are not interchangeable
   if(S.mode!=='24h'&&num($('fDepth').value)<60)$('fDepth').value=75;
   modeFilterState();saveCfg();run()});
 FIELDS.forEach(f=>$(f).addEventListener('change',()=>{saveCfg();

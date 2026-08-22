@@ -190,6 +190,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
       <button data-m="24h" class="on">24h</button>
       <button data-m="4h">4h</button>
       <button data-m="1h">1h</button>
+      <button data-m="1m">1m tape</button>
       <button data-m="surge">Vol surge</button>
       <button data-m="ignite">⚡ Ignite</button>
     </div></div>
@@ -301,6 +302,12 @@ const MODES={
     w:{mom:.45,vol:.25,pos:.12,chg:.05,liq:.13}, blend:[.85,.15],
     pre:r=>r.rangePos>=72
   },
+  '1m':{
+    key:'c1m', hcol:'hM1', tf:'1min',
+    hint:'<b>1m tape</b> \u2014 ranks the whole filtered pool by the last one-minute candle, refetched fresh every scan so nothing is stale. This is a live tape for spotting what is ticking up <i>this minute</i>. It is not a predictor: over 481 one-minute volume ignitions the win rate at 30 min was 51% with a +0.01% median, i.e. chance. Use it to see, not to decide.',
+    w:{mom:.45,vol:.20,pos:.10,chg:.05,liq:.20}, blend:[.9,.1],
+    pre:r=>true
+  },
   'ignite':{
     key:'volSurge', hcol:'hS', tf:'5min',
     hint:'<b>Ignition (5m)</b> \u2014 hunts the moment a move starts: a 5-minute bar closing green on a volume spike. Fires far earlier than the other modes, and far more often on nothing. Read <b>Vol surge</b> as the spike size and the <b>IGNITE</b> badge for how long ago it fired.',
@@ -325,6 +332,7 @@ function modeFilterState(){
   document.getElementById('aScore').parentElement.classList.toggle('off',ig);
   document.getElementById('aSurge').parentElement.classList.toggle('off',ig);
   $('hFired').classList.toggle('key',ig);
+  $('hM1').classList.toggle('key',m==='1m');
   ['h24','h4','h1','hS'].forEach(h=>$(h).classList.remove('key'));
   $(MODES[m].hcol).classList.add('key');
 }
@@ -638,6 +646,24 @@ function renderBreadth(){
   else w.innerHTML='';
 }
 
+/* ================= 1m tape analysis ================= */
+function analyze1m(k){
+  const cl=k.map(x=>x.c),vo=k.map(x=>x.v),n=cl.length,last=cl[n-1];
+  const at=i=>cl[Math.max(0,n-1-i)];
+  const recent=vo.slice(-3).reduce((a,b)=>a+b,0)/3;
+  const prior=vo.slice(-23,-3);
+  const base=prior.length?prior.reduce((a,b)=>a+b,0)/prior.length:recent;
+  return{
+    c1:(last/at(1)-1)*100, c3:(last/at(3)-1)*100, c5:(last/at(5)-1)*100,
+    mom1h:(last/at(15)-1)*100,          // 15 minutes
+    mom4h:(last/at(29)-1)*100,          // ~30 minutes
+    volSurge:base>0?recent/base:1,
+    stack:last>at(5)&&at(5)>at(15),
+    pull:(last/Math.max(...k.slice(-15).map(x=>x.h))-1)*100,
+    coil:false, spark:cl.slice(-24), vspark:vo.slice(-24)
+  };
+}
+
 /* ================= ignition (5m) ================= */
 function analyzeIgnite(k){
   const cl=k.map(x=>x.c),op=k.map(x=>x.o),vo=k.map(x=>x.v),n=cl.length;
@@ -729,7 +755,7 @@ function sortRows(rows){
       return (av-bv)*(d===-1?1:-1);   // default click = freshest first
     }
     if(k==='c1m'){
-      const g=r=>r.m1?r.m1.c1:-Infinity;
+      const g=r=>(r.deep&&r.deep.c1!=null)?r.deep.c1:(r.m1?r.m1.c1:-Infinity);
       return (g(a)-g(b))*d;
     }
     if(k==='cost'){
@@ -760,7 +786,10 @@ async function run(){
     pass.forEach(r=>r._s=score(r));
 
     let short;
-    if(S.mode==='surge'||S.mode==='ignite'){
+    if(S.mode==='1m'){
+      pass.sort((a,b)=>b.vol-a.vol);
+      short=pass.slice(0,depth);
+    } else if(S.mode==='surge'||S.mode==='ignite'){
       // Volume surges can appear anywhere, so sweep the pool in a rotating
       // window instead of only ever scanning the biggest names.
       pass.sort((a,b)=>a.symbol.localeCompare(b.symbol));
@@ -779,16 +808,19 @@ async function run(){
 
     if(short.length){
       $('status').textContent=`deep scan ${short.length}\u2026`;
-      const IG=S.mode==='ignite';
-      const ks=await pool(short.map(r=>r.symbol),
-        sym=>getCandles(sym,IG?'5min':'15min',IG?40:40),5);
+      const IG=S.mode==='ignite', M1=S.mode==='1m';
+      const gran=M1?'1min':IG?'5min':'15min', lim=M1?30:40;
+      const ks=await pool(short.map(r=>r.symbol),sym=>getCandles(sym,gran,lim),5);
       const now=Date.now();
-      ks.forEach((k,i)=>{if(k){const a=IG?analyzeIgnite(k):analyze(k);a.ts=now;
-        S.deep.set(short[i].symbol,a)}});
+      ks.forEach((k,i)=>{if(k){
+        const a=M1?analyze1m(k):IG?analyzeIgnite(k):analyze(k);
+        a.ts=now; S.deep.set(short[i].symbol,a);
+        if(M1)S.m1.set(short[i].symbol,{c1:a.c1,c3:a.c3,c5:a.c5,ts:now});
+      }});
     }
 
     // rank across everything we hold fresh candle data for, not just this window
-    const FRESH=6*60*1000, tnow=Date.now();
+    const FRESH=(S.mode==='1m'?70*1000:6*60*1000), tnow=Date.now();
     let univ=((S.mode==='surge'||S.mode==='ignite')?pass:short).map(r=>{
       const d=S.deep.get(r.symbol);
       r.deep=(d&&tnow-(d.ts||0)<FRESH)?d:null;
@@ -800,6 +832,9 @@ async function run(){
       univ=univ.filter(r=>r.deep&&r.deep.ig&&r.deep.ig.ageMin!=null&&r.deep.ig.ratio>=minR);
       const age=r=>r.deep.ig.ageMin, rat=r=>r.deep.ig.ratio;
       univ.sort((a,b)=>(age(a)-age(b))||(rat(b)-rat(a)));
+    } else if(S.mode==='1m'){
+      univ=univ.filter(r=>r.deep&&r.deep.c1!=null);
+      univ.sort((a,b)=>b.deep.c1-a.deep.c1);      // biggest one-minute gainers first
     } else univ.sort((a,b)=>b._s-a._s);
     S.rows=univ.slice(0,clamp(num($('fRows').value)||25,5,150));
     if(S.mode==='surge'||S.mode==='ignite')
@@ -810,7 +845,7 @@ async function run(){
     computeBreadth(rows);
     checkAlerts(S.rows);
     render();
-    load1m(S.rows).then(render).catch(()=>{});
+    if(S.mode!=='1m')load1m(S.rows).then(render).catch(()=>{});
     loadBooks(S.rows).then(render).catch(()=>{});
     $('dot').className='dot';
     $('status').textContent='updated '+new Date().toLocaleTimeString();
@@ -938,15 +973,16 @@ function render(){
     if(d&&d.stack)b+='<span class="badge b-stack">STACK</span>';
     if(d&&d.volSurge>=2)b+='<span class="badge b-surge">SURGE</span>';
     if(d&&d.mom1h<-1.5)b+='<span class="badge b-fade">FADE</span>';
+    const m1=(d&&d.c1!=null)?d:r.m1;
     const sc=r._s,col=sc>=70?'var(--up)':sc>=50?'var(--warn)':'var(--dim)';
     return `<tr class="${isHit?'hit':isNew?'pulse':''}">
       <td class="l c-sym"><span class="sym">${base}</span><span class="q">/${quote}</span>${b}</td>
       <td class="scorecell c-score" data-l="score" style="color:${col}">${sc.toFixed(0)}
         <span class="bar"><i style="width:${sc}%;background:${col}"></i></span></td>
       <td class="c-price" data-l="px">${fmtPrice(r.price)}</td>
-      <td class="c-m1 ${r.m1?cls(r.m1.c1):'dim'}" data-l="1m" title="${
-        r.m1?`last 3m ${sign(r.m1.c3)}% | last 5m ${sign(r.m1.c5)}%`:''}">${
-        r.m1?sign(r.m1.c1)+'%':'<span class="dim">…</span>'}</td>
+      <td class="c-m1 ${m1?cls(m1.c1):'dim'}" data-l="1m" title="${
+        m1?`last 3m ${sign(m1.c3)}% | last 5m ${sign(m1.c5)}%`:''}">${
+        m1?sign(m1.c1)+'%':'<span class="dim">…</span>'}</td>
       <td class="c-24h ${cls(r.chg24h)}" data-l="24h">${sign(r.chg24h)}%</td>
       <td class="c-4h ${d?cls(d.mom4h):'dim'}" data-l="4h">${d?sign(d.mom4h)+'%':'–'}</td>
       <td class="c-1h ${d?cls(d.mom1h):'dim'}" data-l="1h">${d?sign(d.mom1h)+'%':'–'}</td>
@@ -1049,7 +1085,7 @@ $('btnUpOnly').onclick=e=>{S.upOnly=!S.upOnly;e.target.className=S.upOnly?'on':'
 document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#modes button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');const wasIg=S.mode==='ignite';S.mode=b.dataset.m;
-  S.sortK=S.mode==='ignite'?'fired':'score';
+  S.sortK=S.mode==='ignite'?'fired':S.mode==='1m'?'c1m':'score';
   S.cursor=0;S.cover.clear();
   if(wasIg!==(S.mode==='ignite'))S.deep.clear();  // 5m and 15m data are not interchangeable
   if(S.mode!=='24h'&&num($('fDepth').value)<60)$('fDepth').value=75;

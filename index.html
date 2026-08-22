@@ -154,6 +154,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   td.c-surge{order:6} td.c-pos{order:7} td.c-price{order:8} td.c-vol{order:9}
   td.c-spread,td.c-hi,td.c-fired{display:none}
   td.c-cost{order:8;font-weight:700}
+  td.c-m1{order:3;font-weight:700}
   td.c-spark{order:10;flex:1 1 auto;margin-top:2px}
   td.c-trade{order:11;margin-left:auto;margin-top:2px}
   td.c-trade a{font-size:12px}
@@ -253,6 +254,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <th class="l" data-k="symbol">Symbol</th>
   <th data-k="score">Score</th>
   <th data-k="price">Price</th>
+  <th data-k="c1m" id="hM1">1m %</th>
   <th data-k="chg24h" id="h24">24h %</th>
   <th data-k="mom4h" id="h4">4h %</th>
   <th data-k="mom1h" id="h1">1h %</th>
@@ -266,7 +268,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <th class="l" id="hSpark">15m trend</th>
   <th class="l">Trade</th>
 </tr></thead>
-<tbody id="tb"><tr><td colspan="15" class="empty">Loading Bitget spot markets…</td></tr></tbody>
+<tbody id="tb"><tr><td colspan="16" class="empty">Loading Bitget spot markets…</td></tr></tbody>
 </table></div>
 
 <div class="legend" id="legend"></div>
@@ -469,6 +471,32 @@ async function loadBooks(rows){
     const e=S.book.get(r.symbol);
     r.rt=e?roundTrip(e.book,size):null;
   });
+}
+
+/* ================= 1-minute live tape ================= */
+// This is a monitor, not a signal. Measured over 481 events, a 1m volume
+// ignition won 51% at 30 min with a +0.01% median - a coin flip. It tells you
+// what IS moving, never what WILL move.
+S.m1=new Map();
+async function get1m(sym){
+  const r=await fetch(`${API}/candles?symbol=${sym}&granularity=1min&limit=8`,{cache:'no-store'});
+  if(!r.ok)return null;
+  const j=await r.json();
+  if(j.code!=='00000'||!j.data||j.data.length<3)return null;
+  const cl=j.data.map(c=>num(c[4])), vo=j.data.map(c=>num(c[7]||c[6])), n=cl.length;
+  return {c1:(cl[n-1]/cl[n-2]-1)*100,
+          c3:(cl[n-1]/cl[Math.max(0,n-4)]-1)*100,
+          c5:(cl[n-1]/cl[Math.max(0,n-6)]-1)*100,
+          v1:vo[n-1]};
+}
+async function load1m(rows){
+  const now=Date.now();
+  const need=rows.filter(r=>{const m=S.m1.get(r.symbol);return !m||now-m.ts>25*1000});
+  if(need.length){
+    const ms=await pool(need.map(r=>r.symbol),get1m,5);
+    ms.forEach((m,i)=>{if(m){m.ts=now;S.m1.set(need[i].symbol,m)}});
+  }
+  rows.forEach(r=>{r.m1=S.m1.get(r.symbol)||null});
 }
 
 /* ================= forward test log ================= */
@@ -700,6 +728,10 @@ function sortRows(rows){
       }
       return (av-bv)*(d===-1?1:-1);   // default click = freshest first
     }
+    if(k==='c1m'){
+      const g=r=>r.m1?r.m1.c1:-Infinity;
+      return (g(a)-g(b))*d;
+    }
     if(k==='cost'){
       const g=r=>(r.rt&&!r.rt.thin&&r.rt.cost!=null)?r.rt.cost:Infinity;
       return (g(a)-g(b))*(d===-1?1:-1);   // cheapest first by default
@@ -778,6 +810,7 @@ async function run(){
     computeBreadth(rows);
     checkAlerts(S.rows);
     render();
+    load1m(S.rows).then(render).catch(()=>{});
     loadBooks(S.rows).then(render).catch(()=>{});
     $('dot').className='dot';
     $('status').textContent='updated '+new Date().toLocaleTimeString();
@@ -891,7 +924,7 @@ function render(){
   const rows=sortRows(S.rows.slice()),tb=$('tb');
   $('hSpark').textContent=S.mode==='surge'?'15m volume':'15m trend';
   if(!rows.length){
-    tb.innerHTML='<tr><td colspan="15" class="empty">No pairs match. Loosen <b>min volume</b>'+
+    tb.innerHTML='<tr><td colspan="16" class="empty">No pairs match. Loosen <b>min volume</b>'+
       (S.mode==='24h'?' or <b>min range pos</b>':'')+', or raise <b>scan depth</b>.</td></tr>';
     return;}
   const nowSet=new Set(rows.map(r=>r.symbol));
@@ -911,6 +944,9 @@ function render(){
       <td class="scorecell c-score" data-l="score" style="color:${col}">${sc.toFixed(0)}
         <span class="bar"><i style="width:${sc}%;background:${col}"></i></span></td>
       <td class="c-price" data-l="px">${fmtPrice(r.price)}</td>
+      <td class="c-m1 ${r.m1?cls(r.m1.c1):'dim'}" data-l="1m" title="${
+        r.m1?`last 3m ${sign(r.m1.c3)}% | last 5m ${sign(r.m1.c5)}%`:''}">${
+        r.m1?sign(r.m1.c1)+'%':'<span class="dim">…</span>'}</td>
       <td class="c-24h ${cls(r.chg24h)}" data-l="24h">${sign(r.chg24h)}%</td>
       <td class="c-4h ${d?cls(d.mom4h):'dim'}" data-l="4h">${d?sign(d.mom4h)+'%':'–'}</td>
       <td class="c-1h ${d?cls(d.mom1h):'dim'}" data-l="1h">${d?sign(d.mom1h)+'%':'–'}</td>
@@ -939,7 +975,7 @@ $('legend').innerHTML=`
 <b>Vol surge</b> — last hour of 15m volume vs the prior five hours. Above 1.5× money is entering now; below 0.8× the move is over regardless of how green 24h looks.<br>
 <b>Range pos</b> — where price sits in its 24h band. Near 100% = holding highs. <b>From hi</b> = drawdown off the 4h high.<br>
 <b>Badges</b> — <span class="badge b-stack">STACK</span> price&gt;EMA9&gt;EMA21 · <span class="badge b-surge">SURGE</span> volume&gt;2× · <span class="badge b-coil">COIL</span> heavy volume, price flat (accumulation) · <span class="badge b-new">NEW</span> just entered the list · <span class="badge b-fade">FADE</span> 1h negative despite a green 24h.<br>
-<b>Round trip</b> \u2014 what it actually costs to buy <i>Trade size $</i> of this coin and sell it straight back, walked through the live order book: spread plus slippage, before the 0.2% fee. On a thin coin this can dwarf everything else on the row \u2014 a \u22121.5% round trip means the coin must rise 1.7% just to break even. <b>thin</b> means the book cannot even fill your size.<br>\n<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
+<b>1m %</b> \u2014 the last one-minute candle for the rows on screen, refreshed every scan. Hover for the 3m and 5m change. Sort by it to see which of your candidates is ticking up <i>right now</i>. Treat it as a live tape, not a signal: measured over 481 one-minute volume ignitions, the win rate at 30 minutes was 51% with a +0.01% median \u2014 indistinguishable from chance. It shows what is moving, not what will move.<br>\n<b>Round trip</b> \u2014 what it actually costs to buy <i>Trade size $</i> of this coin and sell it straight back, walked through the live order book: spread plus slippage, before the 0.2% fee. On a thin coin this can dwarf everything else on the row \u2014 a \u22121.5% round trip means the coin must rise 1.7% just to break even. <b>thin</b> means the book cannot even fill your size.<br>\n<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
 <b>Market breadth</b> \u2014 share of the top 22 liquid majors (stables and metals excluded) that are green on the hour. This is the regime gauge: <b>24h advancers</b> can read 80% while 1h breadth reads 5%, because the 24h number lags a turn by hours. Trade the 1h number.<br>
 <b>Scan depth</b> — how many pairs get 15m candles pulled. Higher = better coverage on 1h/4h/surge modes, more requests. The screener cannot deep-scan all 1,200 pairs, so it pre-selects a slice; in 1h/4h that pre-selection uses range position, which can miss a coin surging off a deep low.<br>
 Public Bitget data, no API key, nothing leaves your browser. A screener finds candidates, not trades — confirm on the chart. Not financial advice.`;

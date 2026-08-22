@@ -153,6 +153,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   td.c-24h{order:3} td.c-1h{order:4} td.c-4h{order:5}
   td.c-surge{order:6} td.c-pos{order:7} td.c-price{order:8} td.c-vol{order:9}
   td.c-spread,td.c-hi,td.c-fired{display:none}
+  td.c-cost{order:8;font-weight:700}
   td.c-spark{order:10;flex:1 1 auto;margin-top:2px}
   td.c-trade{order:11;margin-left:auto;margin-top:2px}
   td.c-trade a{font-size:12px}
@@ -194,12 +195,19 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <div class="f"><label>Quote</label>
     <select id="fQuote"><option value="USDT">USDT</option><option value="USDC">USDC</option>
     <option value="ALL">All</option></select></div>
-  <div class="f"><label>Min 24h vol</label><input id="fVol" type="number" value="300000" step="50000"></div>
+  <div class="f"><label>Min 24h vol</label><input id="fVol" type="number" value="120000" step="50000"></div>
   <div class="f" id="wChg"><label>Min 24h chg %</label><input id="fChg" type="number" value="5" step="1"></div>
   <div class="f" id="wChgMax"><label>Max 24h chg %</label><input id="fChgMax" type="number" value="300" step="10"></div>
   <div class="f" id="wPos"><label>Min range pos %</label><input id="fPos" type="number" value="55" step="5"></div>
-  <div class="f"><label>Max spread %</label><input id="fSpread" type="number" value="0.6" step="0.1"></div>
+  <div class="f"><label>Max spread %</label><input id="fSpread" type="number" value="3" step="0.1"></div>
   <div class="f off" id="wIgMin"><label>⚡ min spike ×</label><input id="fIgMin" type="number" value="2.5" step="0.5"></div>
+  <div class="f"><label>Liquidity</label>
+    <div class="seg" id="liq">
+      <button data-l="major">Liquid</button>
+      <button data-l="small">Small caps</button>
+      <button data-l="micro">Micro</button>
+    </div></div>
+  <div class="f"><label>Trade size $</label><input id="fSize" type="number" value="500" step="100"></div>
   <div class="f"><label>Scan depth</label><input id="fDepth" type="number" value="45" step="15" min="10" max="150"></div>
   <div class="f"><label>Rows shown</label><input id="fRows" type="number" value="25" step="5"></div>
 </div>
@@ -252,12 +260,13 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <th data-k="vol">24h vol</th>
   <th data-k="rangePos">Range pos</th>
   <th data-k="spread">Spread</th>
+  <th data-k="cost" id="hCost">Round trip</th>
   <th data-k="pull">From hi</th>
   <th data-k="fired" id="hFired">⚡ Fired</th>
   <th class="l" id="hSpark">15m trend</th>
   <th class="l">Trade</th>
 </tr></thead>
-<tbody id="tb"><tr><td colspan="14" class="empty">Loading Bitget spot markets…</td></tr></tbody>
+<tbody id="tb"><tr><td colspan="15" class="empty">Loading Bitget spot markets…</td></tr></tbody>
 </table></div>
 
 <div class="legend" id="legend"></div>
@@ -319,7 +328,7 @@ function modeFilterState(){
 }
 
 /* ================= persistence ================= */
-const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge'];
+const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge','fSize'];
 function saveCfg(){const o={};FIELDS.forEach(f=>o[f]=$(f).value);
   Object.assign(o,{mode:S.mode,autoOn:S.autoOn,alertOn:S.alertOn,soundOn:S.soundOn,cryptoOnly:S.cryptoOnly,upOnly:S.upOnly,
     sortK:S.sortK,sortD:S.sortD});
@@ -415,6 +424,51 @@ function analyze(k){
   // coiling: big volume, price barely moved -> accumulation
   const coil=volSurge>=2&&Math.abs(mom1h)<1.2;
   return{mom1h,mom4h,volSurge,stack,pull,coil,spark:cl.slice(-24),vspark:vo.slice(-24)};
+}
+
+/* ================= real cost from the order book ================= */
+S.book=new Map();
+async function getBook(sym){
+  const r=await fetch(`${API}/orderbook?symbol=${sym}&limit=100`,{cache:'no-store'});
+  if(!r.ok)return null;
+  const j=await r.json();
+  if(j.code!=='00000'||!j.data)return null;
+  return {a:j.data.asks.map(x=>[num(x[0]),num(x[1])]),
+          b:j.data.bids.map(x=>[num(x[0]),num(x[1])])};
+}
+// Walk the book for `usd` of buying, then sell the same coins straight back.
+// The gap is what the round trip costs before fees - spread plus slippage.
+function roundTrip(book,usd){
+  if(!book||!book.a.length||!book.b.length)return null;
+  let spent=0,got=0;
+  for(const[px,qty]of book.a){
+    const want=(usd-spent)/px;
+    if(want<=0)break;
+    const take=Math.min(qty,want);
+    spent+=take*px; got+=take;
+    if(spent>=usd*0.999)break;
+  }
+  if(spent<usd*0.95)return {cost:null,thin:true,avail:spent};
+  let rev=0,rem=got;
+  for(const[px,qty]of book.b){
+    const take=Math.min(qty,rem);
+    rev+=take*px; rem-=take;
+    if(rem<=0)break;
+  }
+  if(rem>0)return {cost:null,thin:true,avail:spent};
+  return {cost:(1-rev/spent)*100, thin:false, avail:spent};
+}
+async function loadBooks(rows){
+  const size=num($('fSize').value)||500, now=Date.now();
+  const need=rows.filter(r=>{const b=S.book.get(r.symbol);return !b||now-b.ts>90*1000});
+  if(need.length){
+    const bs=await pool(need.map(r=>r.symbol),getBook,5);
+    bs.forEach((b,i)=>{if(b)S.book.set(need[i].symbol,{book:b,ts:now})});
+  }
+  rows.forEach(r=>{
+    const e=S.book.get(r.symbol);
+    r.rt=e?roundTrip(e.book,size):null;
+  });
 }
 
 /* ================= forward test log ================= */
@@ -646,6 +700,10 @@ function sortRows(rows){
       }
       return (av-bv)*(d===-1?1:-1);   // default click = freshest first
     }
+    if(k==='cost'){
+      const g=r=>(r.rt&&!r.rt.thin&&r.rt.cost!=null)?r.rt.cost:Infinity;
+      return (g(a)-g(b))*(d===-1?1:-1);   // cheapest first by default
+    }
     if(k==='score'){x=a._s;y=b._s;}
     else if(['mom1h','mom4h','volSurge','pull'].includes(k)){
       x=a.deep?a.deep[k]:-Infinity;y=b.deep?b.deep[k]:-Infinity;}
@@ -720,6 +778,7 @@ async function run(){
     computeBreadth(rows);
     checkAlerts(S.rows);
     render();
+    loadBooks(S.rows).then(render).catch(()=>{});
     $('dot').className='dot';
     $('status').textContent='updated '+new Date().toLocaleTimeString();
     $('errbox').innerHTML='';
@@ -832,7 +891,7 @@ function render(){
   const rows=sortRows(S.rows.slice()),tb=$('tb');
   $('hSpark').textContent=S.mode==='surge'?'15m volume':'15m trend';
   if(!rows.length){
-    tb.innerHTML='<tr><td colspan="14" class="empty">No pairs match. Loosen <b>min volume</b>'+
+    tb.innerHTML='<tr><td colspan="15" class="empty">No pairs match. Loosen <b>min volume</b>'+
       (S.mode==='24h'?' or <b>min range pos</b>':'')+', or raise <b>scan depth</b>.</td></tr>';
     return;}
   const nowSet=new Set(rows.map(r=>r.symbol));
@@ -860,6 +919,10 @@ function render(){
       <td class="c-pos" data-l="pos"><span class="rp"><i style="left:${clamp(r.rangePos,0,96)}%"></i></span>
         <span class="${r.rangePos>=70?'up':r.rangePos<40?'down':'dim'}"> ${r.rangePos.toFixed(0)}%</span></td>
       <td class="c-spread ${r.spread<=0.2?'':'dim'}" data-l="spread">${r.spread.toFixed(2)}%</td>
+      <td class="c-cost ${!r.rt?'dim':r.rt.thin?'down':r.rt.cost<0.5?'up':r.rt.cost<1.5?'':'down'}" data-l="round trip">${
+        !r.rt?'<span class="dim">…</span>'
+        :r.rt.thin?`<span title="book too thin">thin ~$${fmtVol(r.rt.avail)}</span>`
+        :'-'+r.rt.cost.toFixed(2)+'%'}</td>
       <td class="c-hi ${d?(d.pull>-2?'up':d.pull<-6?'down':'dim'):'dim'}" data-l="from hi">${d?d.pull.toFixed(1)+'%':'–'}</td>
       <td class="c-fired ${d&&d.ig&&d.ig.ageMin!=null?(d.ig.ageMin<=5?'up':d.ig.ageMin<=15?'':'dim'):'dim'}" data-l="fired">${
         d&&d.ig&&d.ig.ageMin!=null?(d.ig.ageMin===0?'now':d.ig.ageMin+'m'):'–'}</td>
@@ -876,7 +939,7 @@ $('legend').innerHTML=`
 <b>Vol surge</b> — last hour of 15m volume vs the prior five hours. Above 1.5× money is entering now; below 0.8× the move is over regardless of how green 24h looks.<br>
 <b>Range pos</b> — where price sits in its 24h band. Near 100% = holding highs. <b>From hi</b> = drawdown off the 4h high.<br>
 <b>Badges</b> — <span class="badge b-stack">STACK</span> price&gt;EMA9&gt;EMA21 · <span class="badge b-surge">SURGE</span> volume&gt;2× · <span class="badge b-coil">COIL</span> heavy volume, price flat (accumulation) · <span class="badge b-new">NEW</span> just entered the list · <span class="badge b-fade">FADE</span> 1h negative despite a green 24h.<br>
-<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
+<b>Round trip</b> \u2014 what it actually costs to buy <i>Trade size $</i> of this coin and sell it straight back, walked through the live order book: spread plus slippage, before the 0.2% fee. On a thin coin this can dwarf everything else on the row \u2014 a \u22121.5% round trip means the coin must rise 1.7% just to break even. <b>thin</b> means the book cannot even fill your size.<br>\n<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
 <b>Market breadth</b> \u2014 share of the top 22 liquid majors (stables and metals excluded) that are green on the hour. This is the regime gauge: <b>24h advancers</b> can read 80% while 1h breadth reads 5%, because the 24h number lags a turn by hours. Trade the 1h number.<br>
 <b>Scan depth</b> — how many pairs get 15m candles pulled. Higher = better coverage on 1h/4h/surge modes, more requests. The screener cannot deep-scan all 1,200 pairs, so it pre-selects a slice; in 1h/4h that pre-selection uses range position, which can miss a coin surging off a deep low.<br>
 Public Bitget data, no API key, nothing leaves your browser. A screener finds candidates, not trades — confirm on the chart. Not financial advice.`;
@@ -915,6 +978,27 @@ $('btnFilters').onclick=()=>{
     document.querySelector(sel).classList.toggle('open',open));
   $('btnFilters').className=open?'on':'';
 };
+// One tap to move between liquidity tiers. Saved settings otherwise persist,
+// so changing the HTML defaults alone would never reach an existing user.
+const LIQ={
+  major:{fVol:1000000,fSpread:0.4},
+  small:{fVol:120000, fSpread:3},
+  micro:{fVol:20000,  fSpread:12}
+};
+function markLiq(){
+  const v=num($('fVol').value), sp=num($('fSpread').value);
+  document.querySelectorAll('#liq button').forEach(b=>{
+    const L=LIQ[b.dataset.l];
+    b.classList.toggle('on', L.fVol===v && L.fSpread===sp);
+  });
+}
+document.querySelectorAll('#liq button').forEach(b=>b.onclick=()=>{
+  const L=LIQ[b.dataset.l];
+  $('fVol').value=L.fVol; $('fSpread').value=L.fSpread;
+  markLiq(); saveCfg(); run();
+});
+['fVol','fSpread'].forEach(f=>$(f).addEventListener('change',markLiq));
+markLiq();
 $('btnNow').onclick=run;
 $('btnAuto').onclick=e=>{S.autoOn=!S.autoOn;e.target.className=S.autoOn?'on':'';
   e.target.textContent=S.autoOn?'Auto 30s':'Auto OFF';saveCfg();schedule()};

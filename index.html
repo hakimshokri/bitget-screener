@@ -90,6 +90,7 @@ tbody tr:hover{background:#141a26}
 .b-fade{background:rgba(234,57,67,.16);color:var(--down)}
 .b-coil{background:rgba(169,123,255,.16);color:var(--vio)}
 .b-ig{background:rgba(240,185,11,.22);color:#ffd351}
+.b-brk{background:rgba(22,199,132,.18);color:#4fe0a5}
 .scorecell{font-weight:700;font-size:13px}
 .bar{height:4px;background:#1c2434;border-radius:2px;overflow:hidden;width:48px;
   display:inline-block;vertical-align:middle;margin-left:6px}
@@ -190,6 +191,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
       <button data-m="24h" class="on">24h</button>
       <button data-m="4h">4h</button>
       <button data-m="1h">1h</button>
+      <button data-m="early">🌱 Early</button>
       <button data-m="1m">1m tape</button>
       <button data-m="surge">Vol surge</button>
       <button data-m="ignite">⚡ Ignite</button>
@@ -202,6 +204,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <div class="f" id="wChgMax"><label>Max 24h chg %</label><input id="fChgMax" type="number" value="300" step="10"></div>
   <div class="f" id="wPos"><label>Min range pos %</label><input id="fPos" type="number" value="55" step="5"></div>
   <div class="f"><label>Max spread %</label><input id="fSpread" type="number" value="3" step="0.1"></div>
+  <div class="f off" id="wBase"><label>🌱 max base width %</label><input id="fBase" type="number" value="7" step="1"></div>
   <div class="f off" id="wIgMin"><label>⚡ min spike ×</label><input id="fIgMin" type="number" value="2.5" step="0.5"></div>
   <div class="f"><label>Liquidity</label>
     <div class="seg" id="liq">
@@ -302,6 +305,12 @@ const MODES={
     w:{mom:.45,vol:.25,pos:.12,chg:.05,liq:.13}, blend:[.85,.15],
     pre:r=>r.rangePos>=72
   },
+  'early':{
+    key:'volSurge', hcol:'hS',
+    hint:'<b>Early</b> \u2014 coins breaking out of a tight base on expanding volume, before the move is obvious. Two measured facts shape this mode. First, it <b>hard-excludes anything already up 25% in 24h</b>: over 351 such cases those underperformed the market by a median <b>\u221210.35%</b> over the next day, with only 19% beating it. That is the strongest effect in any of my testing. Second, be clear about what the breakout setup itself buys you \u2014 market-neutral, its median excess return was <b>+0.06%</b>, i.e. no reliable edge; the mean was +1.0% to +1.4% against a +0.46% baseline, so what edge exists sits in a fat tail, not in the typical trade.',
+    w:{mom:.25,vol:.35,pos:.20,chg:.05,liq:.15}, blend:[.5,.5],
+    pre:r=>r.chg24h<25
+  },
   '1m':{
     key:'c1m', hcol:'hM1', tf:'1min',
     hint:'<b>1m tape</b> \u2014 ranks the whole filtered pool by the last one-minute candle, refetched fresh every scan so nothing is stale. This is a live tape for spotting what is ticking up <i>this minute</i>. It is not a predictor: over 481 one-minute volume ignitions the win rate at 30 min was 51% with a +0.01% median, i.e. chance. Use it to see, not to decide.',
@@ -328,6 +337,7 @@ function modeFilterState(){
   $('wPos').classList.toggle('off',m==='surge'||m==='4h'||m==='1h');
   $('modeHint').innerHTML=MODES[m].hint;
   const ig=m==='ignite';
+  $('wBase').classList.toggle('off',m!=='early');
   $('wIgMin').classList.toggle('off',!ig); $('wIgA').classList.toggle('off',!ig);
   document.getElementById('aScore').parentElement.classList.toggle('off',ig);
   document.getElementById('aSurge').parentElement.classList.toggle('off',ig);
@@ -338,7 +348,7 @@ function modeFilterState(){
 }
 
 /* ================= persistence ================= */
-const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge','fSize'];
+const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge','fSize','fBase'];
 function saveCfg(){const o={};FIELDS.forEach(f=>o[f]=$(f).value);
   Object.assign(o,{mode:S.mode,autoOn:S.autoOn,alertOn:S.alertOn,soundOn:S.soundOn,cryptoOnly:S.cryptoOnly,upOnly:S.upOnly,
     sortK:S.sortK,sortD:S.sortD});
@@ -646,6 +656,21 @@ function renderBreadth(){
   else w.innerHTML='';
 }
 
+/* ================= early: base breakout ================= */
+function analyzeEarly(k){
+  const a=analyze(k);                       // reuse momentum/volume/EMA work
+  const base=k.slice(-28,-4);               // the 6 hours before the current push
+  if(base.length<12){a.base=null;return a}
+  const bh=Math.max(...base.map(x=>x.h)), bl=Math.min(...base.map(x=>x.l));
+  const last=k[k.length-1].c;
+  a.base={
+    tight: bl>0?(bh/bl-1)*100:99,           // how coiled the base was
+    brk:   bh>0?(last/bh-1)*100:-99,        // how far above it price now is
+    hi:bh
+  };
+  return a;
+}
+
 /* ================= 1m tape analysis ================= */
 function analyze1m(k){
   const cl=k.map(x=>x.c),vo=k.map(x=>x.v),n=cl.length,last=cl[n-1];
@@ -786,7 +811,11 @@ async function run(){
     pass.forEach(r=>r._s=score(r));
 
     let short;
-    if(S.mode==='1m'){
+    if(S.mode==='early'){
+      pass=pass.filter(r=>r.chg24h<25&&r.rangePos>=70);
+      pass.sort((a,b)=>b.rangePos-a.rangePos||b.vol-a.vol);
+      short=pass.slice(0,depth);
+    } else if(S.mode==='1m'){
       pass.sort((a,b)=>b.vol-a.vol);
       short=pass.slice(0,depth);
     } else if(S.mode==='surge'||S.mode==='ignite'){
@@ -813,7 +842,7 @@ async function run(){
       const ks=await pool(short.map(r=>r.symbol),sym=>getCandles(sym,gran,lim),5);
       const now=Date.now();
       ks.forEach((k,i)=>{if(k){
-        const a=M1?analyze1m(k):IG?analyzeIgnite(k):analyze(k);
+        const a=M1?analyze1m(k):IG?analyzeIgnite(k):S.mode==='early'?analyzeEarly(k):analyze(k);
         a.ts=now; S.deep.set(short[i].symbol,a);
         if(M1)S.m1.set(short[i].symbol,{c1:a.c1,c3:a.c3,c5:a.c5,ts:now});
       }});
@@ -832,6 +861,14 @@ async function run(){
       univ=univ.filter(r=>r.deep&&r.deep.ig&&r.deep.ig.ageMin!=null&&r.deep.ig.ratio>=minR);
       const age=r=>r.deep.ig.ageMin, rat=r=>r.deep.ig.ratio;
       univ.sort((a,b)=>(age(a)-age(b))||(rat(b)-rat(a)));
+    } else if(S.mode==='early'){
+      const maxB=num($('fBase').value)||7;
+      univ=univ.filter(r=>r.deep&&r.deep.base
+        && r.deep.base.tight<=maxB          // it was actually coiled
+        && r.deep.base.brk>0                // and it is now above that base
+        && r.chg24h<25                      // measured: >25% underperforms by ~10%
+        && r.deep.volSurge>=1.8);           // on real volume
+      univ.sort((a,b)=>b._s-a._s);
     } else if(S.mode==='1m'){
       univ=univ.filter(r=>r.deep&&r.deep.c1!=null);
       univ.sort((a,b)=>b.deep.c1-a.deep.c1);      // biggest one-minute gainers first
@@ -969,6 +1006,8 @@ function render(){
     let b='';
     if(isNew)b+='<span class="badge b-new">NEW</span>';
     if(d&&d.ig&&d.ig.ageMin!=null)b+=`<span class="badge b-ig">\u26a1 ${d.ig.ageMin===0?'NOW':d.ig.ageMin+'m ago'}</span>`;
+    if(d&&d.base&&d.base.brk>0&&S.mode==='early')
+      b+=`<span class="badge b-brk" title="broke a ${d.base.tight.toFixed(1)}% base">\u{1F331} +${d.base.brk.toFixed(1)}% off ${d.base.tight.toFixed(1)}% base</span>`;
     if(d&&d.coil)b+='<span class="badge b-coil">COIL</span>';
     if(d&&d.stack)b+='<span class="badge b-stack">STACK</span>';
     if(d&&d.volSurge>=2)b+='<span class="badge b-surge">SURGE</span>';
@@ -1011,7 +1050,7 @@ $('legend').innerHTML=`
 <b>Vol surge</b> — last hour of 15m volume vs the prior five hours. Above 1.5× money is entering now; below 0.8× the move is over regardless of how green 24h looks.<br>
 <b>Range pos</b> — where price sits in its 24h band. Near 100% = holding highs. <b>From hi</b> = drawdown off the 4h high.<br>
 <b>Badges</b> — <span class="badge b-stack">STACK</span> price&gt;EMA9&gt;EMA21 · <span class="badge b-surge">SURGE</span> volume&gt;2× · <span class="badge b-coil">COIL</span> heavy volume, price flat (accumulation) · <span class="badge b-new">NEW</span> just entered the list · <span class="badge b-fade">FADE</span> 1h negative despite a green 24h.<br>
-<b>1m %</b> \u2014 the last one-minute candle for the rows on screen, refreshed every scan. Hover for the 3m and 5m change. Sort by it to see which of your candidates is ticking up <i>right now</i>. Treat it as a live tape, not a signal: measured over 481 one-minute volume ignitions, the win rate at 30 minutes was 51% with a +0.01% median \u2014 indistinguishable from chance. It shows what is moving, not what will move.<br>\n<b>Round trip</b> \u2014 what it actually costs to buy <i>Trade size $</i> of this coin and sell it straight back, walked through the live order book: spread plus slippage, before the 0.2% fee. On a thin coin this can dwarf everything else on the row \u2014 a \u22121.5% round trip means the coin must rise 1.7% just to break even. <b>thin</b> means the book cannot even fill your size.<br>\n<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
+<b>\u{1F331} Early</b> \u2014 tight base, then volume expansion and a break above that base, on coins that have <i>not</i> already run. The exclusion is the part with evidence behind it: coins already +25% on the day underperformed the market by a median \u221210.35% over the following day (n=351, only 19% beat the market). The breakout setup itself showed no reliable median edge once market drift was removed \u2014 treat it as a way to find candidates that are not yet extended, not as a signal that predicts.<br>\n<b>1m %</b> \u2014 the last one-minute candle for the rows on screen, refreshed every scan. Hover for the 3m and 5m change. Sort by it to see which of your candidates is ticking up <i>right now</i>. Treat it as a live tape, not a signal: measured over 481 one-minute volume ignitions, the win rate at 30 minutes was 51% with a +0.01% median \u2014 indistinguishable from chance. It shows what is moving, not what will move.<br>\n<b>Round trip</b> \u2014 what it actually costs to buy <i>Trade size $</i> of this coin and sell it straight back, walked through the live order book: spread plus slippage, before the 0.2% fee. On a thin coin this can dwarf everything else on the row \u2014 a \u22121.5% round trip means the coin must rise 1.7% just to break even. <b>thin</b> means the book cannot even fill your size.<br>\n<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
 <b>Market breadth</b> \u2014 share of the top 22 liquid majors (stables and metals excluded) that are green on the hour. This is the regime gauge: <b>24h advancers</b> can read 80% while 1h breadth reads 5%, because the 24h number lags a turn by hours. Trade the 1h number.<br>
 <b>Scan depth</b> — how many pairs get 15m candles pulled. Higher = better coverage on 1h/4h/surge modes, more requests. The screener cannot deep-scan all 1,200 pairs, so it pre-selects a slice; in 1h/4h that pre-selection uses range position, which can miss a coin surging off a deep low.<br>
 Public Bitget data, no API key, nothing leaves your browser. A screener finds candidates, not trades — confirm on the chart. Not financial advice.`;

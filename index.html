@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitget Spot Momentum Screener</title>
+<style>
+:root{
+  --bg:#0b0e14; --panel:#121722; --panel2:#171d2b; --line:#232b3d;
+  --txt:#e6edf7; --dim:#8b97ad; --dim2:#5d6880;
+  --up:#16c784; --down:#ea3943; --warn:#f0b90b; --acc:#4c8dff; --vio:#a97bff;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;
+  background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:60}
+.brand{font-weight:700;font-size:15px;letter-spacing:-.2px;white-space:nowrap}
+.brand span{color:var(--acc)}
+.stat{font:11px var(--mono);color:var(--dim)}
+.stat b{color:var(--txt);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--up);display:inline-block;
+  margin-right:5px;vertical-align:middle}
+.dot.stale{background:var(--warn)} .dot.err{background:var(--down)}
+.spacer{flex:1}
+button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:6px;
+  padding:6px 11px;font-size:12px;cursor:pointer;font-weight:500}
+button:hover{border-color:var(--acc)}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.bar-row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;padding:10px 16px;
+  background:var(--panel);border-bottom:1px solid var(--line)}
+.f{display:flex;flex-direction:column;gap:4px;transition:opacity .15s}
+.f.off{opacity:.28;pointer-events:none}
+.f label{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim2);font-weight:600}
+.f input,.f select{background:var(--bg);color:var(--txt);border:1px solid var(--line);
+  border-radius:5px;padding:5px 8px;font:12px var(--mono);width:104px}
+.f input:focus,.f select:focus{outline:none;border-color:var(--acc)}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:5px 11px;background:var(--bg)}
+.seg button.on{background:var(--acc);color:#fff}
+.seg.mode button.on{background:var(--vio);border-color:var(--vio)}
+.hint{font-size:11px;color:var(--dim2);padding:0 16px 9px;background:var(--panel);
+  border-bottom:1px solid var(--line);margin:0}
+.hint b{color:var(--dim)}
+.alerts{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:9px 16px;
+  background:#101623;border-bottom:1px solid var(--line)}
+.feed{flex:1;min-width:240px;max-height:52px;overflow-y:auto;font:11px var(--mono);
+  color:var(--dim);border-left:2px solid var(--line);padding-left:10px}
+.feed div{padding:1px 0} .feed b{color:var(--warn)} .feed i{color:var(--dim2);font-style:normal}
+.breadth{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 16px;
+  background:#0e1420;border-bottom:1px solid var(--line);font-size:12px}
+.bl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim2);font-weight:700}
+.regime{font-weight:800;font-size:13px;letter-spacing:.3px;padding:2px 9px;border-radius:5px}
+.bbar{width:150px;height:9px;background:#1c2434;border-radius:5px;overflow:hidden;position:relative}
+.bbar i{display:block;height:100%;transition:width .4s}
+.bnum{font:12px var(--mono);color:var(--dim)}
+.bnum b{font-weight:700}
+.bwarn{font-size:11.5px;padding:2px 0;flex-basis:100%;color:var(--warn)}
+.bwarn.bad{color:#ff8f95}
+.logpanel{display:none;padding:12px 16px;background:#0e1420;border-bottom:1px solid var(--line)}
+.logpanel.show{display:block}
+.logrow{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.logrow .bl{margin-right:2px}
+.ltab{border-collapse:collapse;font:11.5px var(--mono);margin-top:4px}
+.ltab th{position:static;background:none;border-bottom:1px solid var(--line);padding:5px 10px;
+  color:var(--dim2);font-size:10px;cursor:default}
+.ltab td{padding:4px 10px;border-bottom:1px solid #161d2a}
+.ltab td.l,.ltab th.l{text-align:left}
+.thin{color:var(--dim2);font-style:italic}
+.note{font-size:11px;color:var(--dim2);margin:8px 0 0;line-height:1.6}
+.wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--panel2);color:var(--dim);text-align:right;padding:8px 10px;
+  font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;cursor:pointer;
+  white-space:nowrap;border-bottom:1px solid var(--line);z-index:10}
+th:hover{color:var(--txt)} th.l{text-align:left} th.act{color:var(--acc)}
+th.key{color:var(--vio)}
+td{padding:7px 10px;text-align:right;border-bottom:1px solid #171d2b;font:12px var(--mono);white-space:nowrap}
+td.l{text-align:left;font-family:inherit}
+tbody tr:hover{background:#141a26}
+.sym{font-weight:700;font-size:13px;font-family:inherit;letter-spacing:-.1px}
+.q{color:var(--dim2);font-size:10px;font-weight:500}
+.up{color:var(--up)} .down{color:var(--down)} .dim{color:var(--dim)}
+.badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;
+  margin-left:5px;vertical-align:middle;letter-spacing:.3px}
+.b-new{background:rgba(76,141,255,.16);color:var(--acc)}
+.b-surge{background:rgba(240,185,11,.16);color:var(--warn)}
+.b-stack{background:rgba(22,199,132,.16);color:var(--up)}
+.b-fade{background:rgba(234,57,67,.16);color:var(--down)}
+.b-coil{background:rgba(169,123,255,.16);color:var(--vio)}
+.scorecell{font-weight:700;font-size:13px}
+.bar{height:4px;background:#1c2434;border-radius:2px;overflow:hidden;width:48px;
+  display:inline-block;vertical-align:middle;margin-left:6px}
+.bar i{display:block;height:100%}
+.rp{display:inline-block;width:44px;height:5px;background:#1c2434;border-radius:3px;
+  position:relative;vertical-align:middle}
+.rp i{position:absolute;top:-2px;width:3px;height:9px;background:var(--txt);border-radius:1px}
+a.tl{color:var(--acc);text-decoration:none;font-size:11px;opacity:.7}
+a.tl:hover{opacity:1;text-decoration:underline}
+.empty{padding:56px 20px;text-align:center;color:var(--dim)}
+.legend{padding:12px 16px;color:var(--dim2);font-size:11px;line-height:1.7;
+  border-top:1px solid var(--line);background:var(--panel)}
+.legend b{color:var(--dim)}
+.err{background:rgba(234,57,67,.12);border:1px solid rgba(234,57,67,.3);color:#ff9aa0;
+  padding:10px 14px;margin:12px 16px;border-radius:6px;font-size:12px}
+.pulse{animation:p .7s ease}
+@keyframes p{0%{background:rgba(76,141,255,.22)}100%{background:transparent}}
+.hit{animation:h 1.1s ease}
+@keyframes h{0%,55%{background:rgba(240,185,11,.20)}100%{background:transparent}}
+
+#btnFilters{display:none}
+@media (max-width:760px){
+  header{gap:8px;padding:9px 11px}
+  .brand{font-size:13px;flex:1 1 100%}
+  header .stat{font-size:10.5px}
+  .spacer{display:none}
+  header button{padding:7px 10px;font-size:12px}
+  #btnFilters{display:inline-block}
+
+  /* controls collapse behind the Filters button — they eat the whole screen otherwise */
+  .bar-row,.alerts,.hint{display:none}
+  .bar-row.open{display:flex} .alerts.open{display:flex} .hint.open{display:block}
+  .bar-row{padding:10px 11px;gap:12px}
+  .f input,.f select{width:100%;font-size:16px;padding:8px}  /* 16px stops iOS zooming on focus */
+  .f{flex:1 1 44%}
+  .seg{width:100%} .seg button{flex:1;padding:9px 4px}
+  .feed{flex-basis:100%;max-height:70px}
+
+  .breadth{padding:9px 11px;gap:8px}
+  .bbar{flex:1 1 auto;width:auto;min-width:70px}
+  #bNums{flex-basis:100%;font-size:11px;line-height:1.6}
+  .bwarn{font-size:11px}
+
+  /* rows become cards */
+  .wrap{overflow-x:visible}
+  table,tbody{display:block;width:100%}
+  thead{display:none}
+  tbody tr{display:flex;flex-wrap:wrap;align-items:center;gap:5px 11px;
+    margin:8px 10px;padding:10px 68px 10px 12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;position:relative}
+  tbody tr:hover{background:var(--panel)}
+  td{display:block;border:0;padding:0;text-align:left;font:11.5px var(--mono)}
+  td[data-l]::before{content:attr(data-l);color:var(--dim2);font-size:9px;
+    text-transform:uppercase;letter-spacing:.4px;margin-right:3px}
+  td.c-sym{flex:1 1 100%;order:1;font-family:inherit}
+  td.c-sym::before{content:none}
+  td.c-score{position:absolute;top:9px;right:12px;font-size:19px;
+    text-align:right;line-height:1.15}
+  td.c-score::before{font-size:9px;display:block;text-align:right}
+  td.c-score .bar{display:none}
+  td.c-24h{order:3} td.c-1h{order:4} td.c-4h{order:5}
+  td.c-surge{order:6} td.c-pos{order:7} td.c-price{order:8} td.c-vol{order:9}
+  td.c-spread,td.c-hi{display:none}
+  td.c-spark{order:10;flex:1 1 auto;margin-top:2px}
+  td.c-trade{order:11;margin-left:auto;margin-top:2px}
+  td.c-trade a{font-size:12px}
+  .badge{font-size:9.5px;padding:1px 5px;margin-left:4px}
+  .sym{font-size:14px}
+  .legend{font-size:10.5px;padding:12px 11px}
+  .logpanel{padding:11px}
+  .ltab{font-size:10.5px} .ltab th,.ltab td{padding:4px 6px}
+  .logrow{gap:10px}
+}
+@media (max-width:760px) and (orientation:landscape){
+  tbody tr{gap:5px 14px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">BITGET <span>MOMENTUM</span> SCREENER</div>
+  <div class="stat"><span class="dot" id="dot"></span><span id="status">starting…</span></div>
+  <div class="stat">scanned <b id="nTotal">–</b> · pool <b id="nPass">–</b> · deep <b id="nDeep">–</b></div>
+  <div class="spacer"></div>
+  <button id="btnFilters">⚙ Filters</button>
+  <button id="btnLog">📊 Log</button>
+  <button id="btnCrypto" class="on">Crypto only</button>
+  <button id="btnAuto" class="on">Auto 30s</button>
+  <button id="btnNow">Refresh</button>
+</header>
+
+<div class="bar-row">
+  <div class="f"><label>Rank by</label>
+    <div class="seg mode" id="modes">
+      <button data-m="24h" class="on">24h</button>
+      <button data-m="4h">4h</button>
+      <button data-m="1h">1h</button>
+      <button data-m="surge">Vol surge</button>
+    </div></div>
+  <div class="f"><label>Quote</label>
+    <select id="fQuote"><option value="USDT">USDT</option><option value="USDC">USDC</option>
+    <option value="ALL">All</option></select></div>
+  <div class="f"><label>Min 24h vol</label><input id="fVol" type="number" value="300000" step="50000"></div>
+  <div class="f" id="wChg"><label>Min 24h chg %</label><input id="fChg" type="number" value="5" step="1"></div>
+  <div class="f" id="wChgMax"><label>Max 24h chg %</label><input id="fChgMax" type="number" value="300" step="10"></div>
+  <div class="f" id="wPos"><label>Min range pos %</label><input id="fPos" type="number" value="55" step="5"></div>
+  <div class="f"><label>Max spread %</label><input id="fSpread" type="number" value="0.6" step="0.1"></div>
+  <div class="f"><label>Scan depth</label><input id="fDepth" type="number" value="45" step="15" min="10" max="150"></div>
+  <div class="f"><label>Rows shown</label><input id="fRows" type="number" value="25" step="5"></div>
+</div>
+<p class="hint" id="modeHint"></p>
+
+<div class="alerts">
+  <button id="btnAlert">🔔 Alerts: OFF</button>
+  <button id="btnSound" class="on">🔊 Sound</button>
+  <button id="btnUpOnly" class="on">↑ 1h+ only</button>
+  <div class="f"><label>Alert if score ≥</label><input id="aScore" type="number" value="75" step="5"></div>
+  <div class="f"><label>…or surge ≥</label><input id="aSurge" type="number" value="3" step="0.5"></div>
+  <div class="f"><label>Re-alert after</label>
+    <select id="aCool"><option value="300">5 min</option><option value="600" selected>10 min</option>
+    <option value="1800">30 min</option><option value="0">never</option></select></div>
+  <div class="feed" id="feed"><i>Alerts off. Turn on to get a beep when a pair crosses your thresholds.</i></div>
+</div>
+
+<div class="logpanel" id="logPanel">
+  <div class="logrow">
+    <span class="bl">Forward test</span>
+    <span class="bnum" id="logCount">—</span>
+    <div class="f"><label>Log rows scoring ≥</label><input id="lMin" type="number" value="70" step="5"></div>
+    <button id="btnLogExport">Export JSON</button>
+    <button id="btnLogClear">Clear log</button>
+  </div>
+  <div id="logStats"></div>
+  <p class="note">Each entry records a pair the moment it crossed your threshold, then re-checks it 1h and 4h later
+  using prices from the scan you're already running — no extra requests. <b>Excess</b> is return minus BTC's move over
+  the same window, so a number only counts as a win if it beat simply holding BTC.
+  Give it a day or two before reading anything into it; small samples will lie to you.</p>
+</div>
+<div class="breadth" id="breadth">
+  <span class="bl">Market</span>
+  <span class="regime" id="bRegime" style="background:#1c2434;color:var(--dim)">—</span>
+  <span class="bbar"><i id="bBar" style="width:0%;background:var(--dim2)"></i></span>
+  <span class="bnum" id="bNums">measuring majors…</span>
+  <span class="bwarn" id="bWarn"></span>
+</div>
+<div id="errbox"></div>
+<div class="wrap"><table>
+<thead><tr>
+  <th class="l" data-k="symbol">Symbol</th>
+  <th data-k="score">Score</th>
+  <th data-k="price">Price</th>
+  <th data-k="chg24h" id="h24">24h %</th>
+  <th data-k="mom4h" id="h4">4h %</th>
+  <th data-k="mom1h" id="h1">1h %</th>
+  <th data-k="volSurge" id="hS">Vol surge</th>
+  <th data-k="vol">24h vol</th>
+  <th data-k="rangePos">Range pos</th>
+  <th data-k="spread">Spread</th>
+  <th data-k="pull">From hi</th>
+  <th class="l" id="hSpark">15m trend</th>
+  <th class="l">Trade</th>
+</tr></thead>
+<tbody id="tb"><tr><td colspan="13" class="empty">Loading Bitget spot markets…</td></tr></tbody>
+</table></div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+const API='https://api.bitget.com/api/v2/spot/market';
+const $=id=>document.getElementById(id);
+const S={rows:[],deep:new Map(),seen:new Set(),first:true,sortK:'score',sortD:-1,
+  mode:'24h',autoOn:true,alertOn:false,soundOn:true,busy:false,timer:null,
+  lastAlert:new Map(),feed:[],hits:new Set(),
+  excl:new Set(),metaOk:false,arm:false,poolSize:0,upOnly:true,breadth:null,log:[],logOpen:false,cursor:0,cover:new Set(),cryptoOnly:true};
+
+/* ================= modes ================= */
+const MODES={
+  '24h':{
+    key:'chg24h', hcol:'h24',
+    hint:'<b>24h gainers</b> — the classic view, but scored on whether the move is still alive. Filters apply as set.',
+    w:{mom:.30,vol:.25,pos:.20,chg:.15,liq:.10}, blend:[.60,.40],
+    pre:r=>true
+  },
+  '4h':{
+    key:'mom4h', hcol:'h4',
+    hint:'<b>4h momentum</b> — ranks by the last 4 hours, not the last 24. Ignores your 24h-change filters and pre-selects on range position, so coins flat on the day but moving now can surface.',
+    w:{mom:.40,vol:.25,pos:.15,chg:.08,liq:.12}, blend:[.35,.65],
+    pre:r=>r.rangePos>=65
+  },
+  '1h':{
+    key:'mom1h', hcol:'h1',
+    hint:'<b>1h momentum</b> — the freshest read. Ignores 24h-change filters, pre-selects hard on range position. Best paired with a bigger <b>scan depth</b>.',
+    w:{mom:.45,vol:.25,pos:.12,chg:.05,liq:.13}, blend:[.85,.15],
+    pre:r=>r.rangePos>=72
+  },
+  'surge':{
+    key:'volSurge', hcol:'hS',
+    hint:'<b>Volume surge</b> — ranks purely on volume expansion, ignoring price entirely. Finds accumulation: volume exploding while price is still flat. Sweeps the market in a rotating window each refresh, so coverage builds over the first few minutes. The earliest signal here, and the noisiest.',
+    w:{mom:.15,vol:.50,pos:.10,chg:.05,liq:.20}, blend:[.5,.5],
+    pre:r=>true
+  }
+};
+function modeFilterState(){
+  const m=S.mode;
+  $('wChg').classList.toggle('off',m!=='24h');
+  $('wChgMax').classList.toggle('off',m!=='24h');
+  $('wPos').classList.toggle('off',m==='surge'||m==='4h'||m==='1h');
+  $('modeHint').innerHTML=MODES[m].hint;
+  ['h24','h4','h1','hS'].forEach(h=>$(h).classList.remove('key'));
+  $(MODES[m].hcol).classList.add('key');
+}
+
+/* ================= persistence ================= */
+const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin'];
+function saveCfg(){const o={};FIELDS.forEach(f=>o[f]=$(f).value);
+  Object.assign(o,{mode:S.mode,autoOn:S.autoOn,alertOn:S.alertOn,soundOn:S.soundOn,cryptoOnly:S.cryptoOnly,upOnly:S.upOnly,
+    sortK:S.sortK,sortD:S.sortD});
+  try{localStorage.setItem('bg_scr2',JSON.stringify(o))}catch(e){}}
+function loadCfg(){try{const o=JSON.parse(localStorage.getItem('bg_scr2')||'{}');
+  FIELDS.forEach(f=>{if(o[f]!=null)$(f).value=o[f]});
+  ['mode','autoOn','alertOn','soundOn','sortK','sortD','cryptoOnly','upOnly'].forEach(k=>{if(o[k]!=null)S[k]=o[k]});
+}catch(e){}}
+
+/* ================= helpers ================= */
+const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function fmtPrice(p){if(p>=1000)return p.toLocaleString('en',{maximumFractionDigits:1});
+  if(p>=1)return p.toFixed(3);if(p>=0.01)return p.toFixed(5);
+  if(p>=0.0001)return p.toFixed(7);return p.toExponential(2)}
+function fmtVol(v){if(v>=1e9)return(v/1e9).toFixed(2)+'B';if(v>=1e6)return(v/1e6).toFixed(2)+'M';
+  if(v>=1e3)return(v/1e3).toFixed(1)+'K';return v.toFixed(0)}
+const sign=n=>(n>0?'+':'')+n.toFixed(2);
+const cls=n=>n>0?'up':n<0?'down':'dim';
+function ema(a,p){const k=2/(p+1);let e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
+
+/* ================= sound ================= */
+let AC=null;
+function beep(hi){
+  if(!S.soundOn)return;
+  try{
+    AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+    if(AC.state==='suspended')AC.resume();
+    const t=AC.currentTime;
+    [[hi?880:660,0],[hi?1320:990,.09]].forEach(([f,d])=>{
+      const o=AC.createOscillator(),g=AC.createGain();
+      o.type='sine';o.frequency.value=f;
+      g.gain.setValueAtTime(0,t+d);
+      g.gain.linearRampToValueAtTime(.16,t+d+.012);
+      g.gain.exponentialRampToValueAtTime(.0008,t+d+.16);
+      o.connect(g);g.connect(AC.destination);o.start(t+d);o.stop(t+d+.18);
+    });
+  }catch(e){}
+}
+
+/* ================= data ================= */
+async function getTickers(){
+  const r=await fetch(API+'/tickers',{cache:'no-store'});
+  if(!r.ok)throw new Error('Tickers HTTP '+r.status);
+  const j=await r.json();
+  if(j.code!=='00000')throw new Error(j.msg||'API error');
+  return j.data;
+}
+async function loadMeta(){
+  if(S.metaOk)return;
+  try{
+    const r=await fetch(API.replace('/market','/public')+'/symbols',{cache:'no-store'});
+    const j=await r.json();
+    if(j.code!=='00000')return;
+    j.data.forEach(x=>{
+      const b=x.baseCoin||'';
+      // Bitget tokenized equities are baseCoin 'rNVDA','rSPY'… ; 'pre' = pre-market
+      if(/^r[A-Z]/.test(b)||/^pre[A-Z]/.test(b))S.excl.add(x.symbol);
+    });
+    S.metaOk=true;
+  }catch(e){}
+}
+async function getCandles(sym){
+  const r=await fetch(`${API}/candles?symbol=${sym}&granularity=15min&limit=40`,{cache:'no-store'});
+  if(!r.ok)return null;
+  const j=await r.json();
+  if(j.code!=='00000'||!j.data||j.data.length<12)return null;
+  return j.data.map(c=>({c:num(c[4]),h:num(c[2]),l:num(c[3]),v:num(c[7]||c[6])}));
+}
+async function pool(items,fn,n=5){
+  const out=[];let i=0;
+  await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{
+    while(i<items.length){const k=i++;out[k]=await fn(items[k]).catch(()=>null);
+      await new Promise(r=>setTimeout(r,55));}
+  }));
+  return out;
+}
+
+/* ================= candle analysis ================= */
+function analyze(k){
+  const cl=k.map(x=>x.c),vo=k.map(x=>x.v),n=cl.length,last=cl[n-1];
+  const back=i=>cl[Math.max(0,n-1-i)];
+  const mom1h=(last/back(4)-1)*100;
+  const mom4h=(last/back(16)-1)*100;
+  const recent=vo.slice(-4).reduce((a,b)=>a+b,0)/4;
+  const prior=vo.slice(-24,-4);
+  const base=prior.length?prior.reduce((a,b)=>a+b,0)/prior.length:recent;
+  const volSurge=base>0?recent/base:1;
+  const e9=ema(cl.slice(-24),9),e21=ema(cl.slice(-32),21);
+  const stack=last>e9&&e9>e21;
+  const hi=Math.max(...k.slice(-16).map(x=>x.h));
+  const pull=hi>0?(last/hi-1)*100:0;
+  // coiling: big volume, price barely moved -> accumulation
+  const coil=volSurge>=2&&Math.abs(mom1h)<1.2;
+  return{mom1h,mom4h,volSurge,stack,pull,coil,spark:cl.slice(-24),vspark:vo.slice(-24)};
+}
+
+/* ================= forward test log ================= */
+const LOGKEY='bg_fwd', LOGCAP=3000, H=3600*1000;
+function loadLog(){try{S.log=JSON.parse(localStorage.getItem(LOGKEY)||'[]')}catch(e){S.log=[]}}
+function saveLog(){try{localStorage.setItem(LOGKEY,JSON.stringify(S.log.slice(-LOGCAP)))}catch(e){}}
+
+function logCycle(rows,pxMap,btc,regime){
+  const now=Date.now(), minS=num($('lMin').value)||70;
+  // --- record new crossings (one entry per symbol per 30 min) ---
+  const recent=new Map();
+  S.log.forEach(e=>{if(!recent.has(e.s)||e.t>recent.get(e.s))recent.set(e.s,e.t)});
+  rows.forEach(r=>{
+    if(r._s<minS||!r.deep||!btc)return;
+    if(now-(recent.get(r.symbol)||0)<30*60*1000)return;
+    const f=[];
+    if(r.deep.stack)f.push('STACK'); if(r.deep.volSurge>=2)f.push('SURGE');
+    if(r.deep.coil)f.push('COIL'); if(r.deep.mom1h<-1.5)f.push('FADE');
+    S.log.push({s:r.symbol,t:now,p:r.price,b:btc,sc:+r._s.toFixed(1),m:S.mode,
+      vs:+r.deep.volSurge.toFixed(2),m1:+r.deep.mom1h.toFixed(2),
+      rp:Math.round(r.rangePos),br:regime==null?null:Math.round(regime),
+      fl:f.join('|'),r1:null,r4:null,x1:null,x4:null});
+    recent.set(r.symbol,now);
+  });
+  // --- resolve matured entries from the ticker feed we already have ---
+  let changed=false;
+  S.log.forEach(e=>{
+    const px=pxMap.get(e.s); if(!px||!btc)return;
+    const ret=(px/e.p-1)*100, bret=(btc/e.b-1)*100;
+    if(e.r1==null&&now-e.t>=H){e.r1=+ret.toFixed(2);e.x1=+(ret-bret).toFixed(2);changed=true}
+    if(e.r4==null&&now-e.t>=4*H){e.r4=+ret.toFixed(2);e.x4=+(ret-bret).toFixed(2);changed=true}
+  });
+  if(S.log.length>LOGCAP)S.log=S.log.slice(-LOGCAP);
+  saveLog();
+  if(S.logOpen)renderLog();
+}
+
+const med=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),i=b.length>>1;
+  return b.length%2?b[i]:(b[i-1]+b[i])/2};
+function bucketStats(groups){
+  const out=[];
+  for(const[name,items]of groups){
+    const r=items.filter(e=>e.r1!=null);
+    if(!r.length){out.push({name,n:0,pend:items.length});continue}
+    const x=r.map(e=>e.x1);
+    out.push({name,n:r.length,pend:items.length-r.length,
+      win:100*r.filter(e=>e.x1>0).length/r.length,
+      medR:med(r.map(e=>e.r1)),medX:med(x),
+      med4:med(r.filter(e=>e.r4!=null).map(e=>e.x4)),
+      n4:r.filter(e=>e.r4!=null).length});
+  }
+  return out;
+}
+function grp(fn,order){
+  const m=new Map(); (order||[]).forEach(k=>m.set(k,[]));
+  S.log.forEach(e=>{const k=fn(e); if(k==null)return; if(!m.has(k))m.set(k,[]); m.get(k).push(e)});
+  return [...m].filter(([k,v])=>v.length);
+}
+function tbl(title,rows,col){
+  if(!rows.length)return '';
+  return `<div style="margin:10px 0 2px;color:var(--dim);font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.5px">${title}</div>
+  <table class="ltab"><tr><th class="l">${col}</th><th>n</th><th>beat BTC</th>
+  <th>med return 1h</th><th>med excess 1h</th><th>med excess 4h</th><th>pending</th></tr>
+  ${rows.map(r=>{
+    if(!r.n)return `<tr><td class="l">${r.name}</td><td colspan="5" class="thin">no matured entries yet</td><td>${r.pend}</td></tr>`;
+    const c=v=>v==null?'<span class="thin">–</span>':`<span class="${v>0?'up':v<0?'down':'dim'}">${sign(v)}%</span>`;
+    return `<tr><td class="l">${r.name}</td><td>${r.n}</td>
+      <td class="${r.win>=50?'up':'down'}">${r.win.toFixed(0)}%</td>
+      <td>${c(r.medR)}</td><td>${c(r.medX)}</td>
+      <td>${r.n4?c(r.med4):'<span class="thin">–</span>'}</td><td class="thin">${r.pend}</td></tr>`;
+  }).join('')}</table>`;
+}
+function renderLog(){
+  const done=S.log.filter(e=>e.r1!=null).length;
+  $('logCount').innerHTML=`<b>${S.log.length}</b> entries · <b>${done}</b> matured ·
+    <span style="color:var(--dim2)">${S.log.length-done} waiting to reach 1h</span>`;
+  if(!S.log.length){
+    $('logStats').innerHTML='<p class="thin" style="margin:12px 0">Nothing logged yet. '+
+      'Leave the screener running — entries appear as pairs cross your threshold, '+
+      'and the first results mature an hour later.</p>';return;}
+  const scoreB=e=>e.sc>=90?'90+':e.sc>=80?'80–89':e.sc>=70?'70–79':'below 70';
+  const regB=e=>e.br==null?null:e.br>=65?'RISK ON':e.br>=45?'MIXED':e.br>=25?'WEAK':'RISK OFF';
+  let html=tbl('By score bucket',bucketStats(grp(scoreB,['90+','80–89','70–79','below 70'])),'Score');
+  html+=tbl('By market regime when logged',bucketStats(grp(regB,['RISK ON','MIXED','WEAK','RISK OFF'])),'Regime');
+  const flagGroups=['STACK','SURGE','COIL','FADE'].map(f=>[f,S.log.filter(e=>(e.fl||'').includes(f))]).filter(([k,v])=>v.length);
+  html+=tbl('By badge',bucketStats(flagGroups),'Badge');
+  html+=tbl('By rank mode',bucketStats(grp(e=>e.m)),'Mode');
+  $('logStats').innerHTML=html;
+}
+
+/* ================= market breadth ================= */
+// Stables and metals never move, so they'd wash out the reading.
+const STABLE=/^(USDC|USDE|USDD|USD1|USDGO|USDF|FDUSD|TUSD|DAI|BUSD|PYUSD|EURT|EURC|XAUT|PAXG)USDT$/;
+function basket(rows){
+  return rows.filter(r=>!STABLE.test(r.symbol)&&!(r.price>0.9&&r.price<1.1&&Math.abs(r.chg24h)<0.6))
+    .sort((a,b)=>b.vol-a.vol).slice(0,22);
+}
+async function computeBreadth(rows){
+  const B=basket(rows); if(!B.length)return;
+  const FRESH=3*60*1000,now=Date.now();
+  const need=B.filter(r=>{const d=S.deep.get(r.symbol);return !d||now-(d.ts||0)>FRESH});
+  if(need.length){
+    const ks=await pool(need.map(r=>r.symbol),getCandles,5);
+    ks.forEach((k,i)=>{if(k){const a=analyze(k);a.ts=now;S.deep.set(need[i].symbol,a)}});
+  }
+  let u1=0,u4=0,n=0,btc1=null;
+  B.forEach(r=>{
+    const d=S.deep.get(r.symbol); if(!d)return;
+    n++; if(d.mom1h>0)u1++; if(d.mom4h>0)u4++;
+    if(r.symbol==='BTCUSDT')btc1=d.mom1h;
+  });
+  if(!n)return;
+  const adv=rows.length?100*rows.filter(r=>r.chg24h>0).length/rows.length:0;
+  S.breadth={b1:100*u1/n,b4:100*u4/n,btc1,adv,n};
+  renderBreadth();
+}
+function renderBreadth(){
+  const b=S.breadth; if(!b)return;
+  const v=b.b1;
+  const R = v>=65?['RISK ON','var(--up)']
+          : v>=45?['MIXED','var(--warn)']
+          : v>=25?['WEAK','#ff9d5c']
+          :       ['RISK OFF','var(--down)'];
+  const el=$('bRegime');
+  el.textContent=R[0]; el.style.color=R[1];
+  el.style.background=R[1].startsWith('var')?'rgba(255,255,255,.06)':'rgba(234,57,67,.14)';
+  $('bBar').style.width=v.toFixed(0)+'%';
+  $('bBar').style.background=R[1];
+  $('bNums').innerHTML=
+    `1h breadth <b style="color:${R[1]}">${v.toFixed(0)}%</b> `+
+    `<span style="color:var(--dim2)">(${Math.round(v*b.n/100)}/${b.n} majors green)</span> · `+
+    `4h <b>${b.b4.toFixed(0)}%</b> · `+
+    (b.btc1!=null?`BTC 1h <b class="${cls(b.btc1)}">${sign(b.btc1)}%</b> · `:'')+
+    `<span style="color:var(--dim2)">24h advancers ${b.adv.toFixed(0)}% (lagging)</span>`;
+  const w=$('bWarn');
+  if(v<25)w.innerHTML='<span class="bwarn bad">\u26a0 Broad selling across majors. Green 24h numbers below are mostly stale \u2014 in this regime most breakouts fail and the gainers list is exit liquidity.</span>';
+  else if(v<45)w.innerHTML='\u26a0 Majors are mixed to weak. Momentum setups have a much lower hit rate when breadth is falling.';
+  else w.innerHTML='';
+}
+
+/* ================= scoring ================= */
+function score(r){
+  const M=MODES[S.mode],w=M.w,d=r.deep;
+  let mom;
+  if(d){
+    const n1=clamp(d.mom1h/6*100,-45,100), n4=clamp(d.mom4h/14*100,-35,100);
+    mom=clamp(M.blend[0]*n1+M.blend[1]*n4,0,100);
+  }else mom=clamp(r.chg24h/25*100,0,70);
+  const vol=(d?clamp((d.volSurge-0.6)/2.2*100,0,100):45);
+  const pos=clamp(r.rangePos,0,100);
+  const chg=clamp(Math.log10(1+Math.max(0,r.chg24h))/Math.log10(61)*100,0,100);
+  const lv=clamp(Math.log10(1+r.vol)/Math.log10(3e7)*100,0,100);
+  const ls=clamp(100-r.spread*140,0,100);
+  const liq=lv*0.6+ls*0.4;
+  let t=mom*w.mom+vol*w.vol+pos*w.pos+chg*w.chg+liq*w.liq;
+  if(d&&d.stack)t+=4;
+  if(d&&d.mom1h<-1.5&&S.mode!=='surge')t-=10;
+  return clamp(t,0,100);
+}
+
+/* ================= pipeline ================= */
+function baseRows(raw){
+  const q=$('fQuote').value;
+  return raw.map(t=>{
+    const last=num(t.lastPr),hi=num(t.high24h),lo=num(t.low24h);
+    const bid=num(t.bidPr),ask=num(t.askPr),mid=(bid+ask)/2;
+    return{symbol:t.symbol,price:last,chg24h:num(t.change24h)*100,vol:num(t.usdtVolume),
+      rangePos:hi>lo?(last-lo)/(hi-lo)*100:50,
+      spread:mid>0&&ask>0&&bid>0?(ask-bid)/mid*100:99,deep:null};
+  }).filter(r=>(q==='ALL'||r.symbol.endsWith(q))&&r.price>0&&r.vol>0
+    &&!(S.cryptoOnly&&S.excl.has(r.symbol)));
+}
+function applyFilters(rows){
+  const M=MODES[S.mode];
+  const mv=num($('fVol').value),ms=num($('fSpread').value);
+  const mc=num($('fChg').value),xc=num($('fChgMax').value),mp=num($('fPos').value);
+  return rows.filter(r=>{
+    if(r.vol<mv||r.spread>ms)return false;
+    if(S.mode==='24h'){
+      if(r.chg24h<mc||r.chg24h>xc||r.rangePos<mp)return false;
+    }else if(S.mode==='surge'){
+      /* price-agnostic: volume + spread only */
+    }else{
+      if(!M.pre(r))return false;
+      if(r.chg24h<-15)return false;           // avoid falling knives
+    }
+    return true;
+  });
+}
+function sortRows(rows){
+  const k=S.sortK,d=S.sortD;
+  return rows.sort((a,b)=>{
+    if(k==='symbol')return a.symbol.localeCompare(b.symbol)*d*-1;
+    let x,y;
+    if(k==='score'){x=a._s;y=b._s;}
+    else if(['mom1h','mom4h','volSurge','pull'].includes(k)){
+      x=a.deep?a.deep[k]:-Infinity;y=b.deep?b.deep[k]:-Infinity;}
+    else{x=a[k];y=b[k];}
+    return (x-y)*d;
+  });
+}
+
+async function run(){
+  if(S.busy)return;S.busy=true;
+  $('dot').className='dot stale';$('status').textContent='scanning…';
+  try{
+    await loadMeta();
+    const raw=await getTickers();
+    let rows=baseRows(raw);
+    $('nTotal').textContent=rows.length;
+    let pass=applyFilters(rows);
+    $('nPass').textContent=pass.length;
+    S.poolSize=pass.length;
+
+    const depth=clamp(num($('fDepth').value)||45,10,150);
+    pass.forEach(r=>r._s=score(r));
+
+    let short;
+    if(S.mode==='surge'){
+      // Volume surges can appear anywhere, so sweep the pool in a rotating
+      // window instead of only ever scanning the biggest names.
+      pass.sort((a,b)=>a.symbol.localeCompare(b.symbol));
+      const n=pass.length;
+      if(S.cursor>=n)S.cursor=0;
+      short=[];
+      for(let i=0;i<Math.min(depth,n);i++)short.push(pass[(S.cursor+i)%n]);
+      S.cursor=(S.cursor+depth)%Math.max(1,n);
+      short.forEach(r=>S.cover.add(r.symbol));
+    }else{
+      if(S.mode==='24h')pass.sort((a,b)=>b._s-a._s);
+      else pass.sort((a,b)=>b.rangePos-a.rangePos||b.vol-a.vol);
+      short=pass.slice(0,depth);
+    }
+    $('nDeep').textContent=short.length;
+
+    if(short.length){
+      $('status').textContent=`deep scan ${short.length}\u2026`;
+      const ks=await pool(short.map(r=>r.symbol),getCandles,5);
+      const now=Date.now();
+      ks.forEach((k,i)=>{if(k){const a=analyze(k);a.ts=now;S.deep.set(short[i].symbol,a)}});
+    }
+
+    // rank across everything we hold fresh candle data for, not just this window
+    const FRESH=6*60*1000, tnow=Date.now();
+    let univ=(S.mode==='surge'?pass:short).map(r=>{
+      const d=S.deep.get(r.symbol);
+      r.deep=(d&&tnow-(d.ts||0)<FRESH)?d:null;
+      r._s=score(r); return r;
+    }).filter(r=>S.mode!=='surge'||r.deep);
+
+    univ.sort((a,b)=>b._s-a._s);
+    S.rows=univ.slice(0,clamp(num($('fRows').value)||25,5,150));
+    if(S.mode==='surge')
+      $('nDeep').textContent=`${short.length} (covered ${S.cover.size}/${pass.length})`;
+
+    const pxMap=new Map(raw.map(t=>[t.symbol,num(t.lastPr)]));
+    logCycle(S.rows,pxMap,pxMap.get('BTCUSDT'),S.breadth?S.breadth.b1:null);
+    computeBreadth(rows);
+    checkAlerts(S.rows);
+    render();
+    $('dot').className='dot';
+    $('status').textContent='updated '+new Date().toLocaleTimeString();
+    $('errbox').innerHTML='';
+  }catch(e){
+    $('dot').className='dot err';$('status').textContent='error';
+    $('errbox').innerHTML=`<div class="err"><b>Could not reach Bitget.</b> ${e.message}.
+      Usually this is a dropped connection or a brief rate limit \u2014 it retries automatically
+      on the next refresh. If it never recovers, check that api.bitget.com is reachable
+      from your network (some regions and mobile carriers block it).</div>`;
+  }finally{S.busy=false}
+}
+
+/* ================= alerts ================= */
+function checkAlerts(rows){
+  if(!S.alertOn){S.hits.clear();return}
+  const minS=num($('aScore').value),minV=num($('aSurge').value);
+  const cool=num($('aCool').value)*1000,now=Date.now();
+  S.hits.clear();
+  const qualifies=r=>{
+    const d=r.deep;
+    // an alert is an invitation to look at a chart — a pair already rolling
+    // over on the hour is not one, so it's suppressed by default
+    if(S.upOnly&&d&&d.mom1h<0)return[false,false];
+    return [r._s>=minS, d&&minV>0&&d.volSurge>=minV];
+  };
+  // First pass after arming: record the current state as the baseline and stay
+  // silent, so you only get alerted on pairs that cross *after* you armed.
+  const sweeping = S.mode==='surge' && S.cover.size < S.poolSize;
+  if(S.arm||sweeping){
+    let n=0;
+    rows.forEach(r=>{const[a,b]=qualifies(r);if(a||b){S.lastAlert.set(r.symbol,now);n++}});
+    S.arm=false;
+    const t=new Date().toLocaleTimeString();
+    if(sweeping)
+      S.feed.unshift({t,s:'SWEEP',why:`baselining ${S.cover.size}/${S.poolSize} covered \u2014 silent until the first pass completes`});
+    else
+      S.feed.unshift({t,s:'ARMED',why:`baseline set \u2014 ${n} pair${n===1?'':'s'} already above threshold, ignoring those`});
+    S.feed=S.feed.slice(0,30);
+    renderFeed();
+    return;
+  }
+  const fired=[];
+  rows.forEach(r=>{
+    const[hitScore,hitSurge]=qualifies(r);
+    if(!hitScore&&!hitSurge)return;
+    const prev=S.lastAlert.get(r.symbol)||0;
+    if(cool===0&&prev)return;
+    if(cool>0&&now-prev<cool)return;
+    S.lastAlert.set(r.symbol,now);
+    S.hits.add(r.symbol);
+    const why=[];
+    if(hitScore)why.push('score '+r._s.toFixed(0));
+    if(hitSurge)why.push('surge '+r.deep.volSurge.toFixed(1)+'\u00d7');
+    if(r.deep&&r.deep.coil)why.push('coiling');
+    if(r.deep&&r.deep.mom1h<-1.5)why.push('\u26a0 1h negative');
+    fired.push({r,why:why.join(' \u00b7 ')});
+  });
+  if(!fired.length)return;
+  fired.sort((a,b)=>b.r._s-a.r._s);
+  const MAX=6,show=fired.slice(0,MAX),t=new Date().toLocaleTimeString();
+  show.forEach(f=>S.feed.unshift({t,s:f.r.symbol.replace(/(USDT|USDC)$/,''),why:f.why}));
+  if(fired.length>MAX)
+    S.feed.unshift({t,s:'+'+(fired.length-MAX),why:'more crossed (raise your thresholds to narrow this)'});
+  S.feed=S.feed.slice(0,30);
+  beep(show[0].r._s>=85);
+  document.title=`(${fired.length}) Bitget Screener`;
+  setTimeout(()=>document.title='Bitget Spot Momentum Screener',6000);
+  renderFeed();
+}
+function renderFeed(){
+  const f=$('feed');
+  if(!S.alertOn){f.innerHTML='<i>Alerts off. Turn on to get a beep when a pair crosses your thresholds.</i>';return}
+  if(!S.feed.length){f.innerHTML='<i>Arming on next refresh — the pairs already above threshold become the baseline, then you get alerted on new crossings only.</i>';return}
+  f.innerHTML=S.feed.map(a=>`<div><i>${a.t}</i> <b>${a.s}</b> — ${a.why}</div>`).join('');
+}
+
+/* ================= render ================= */
+function sparkLine(vals){
+  if(!vals||vals.length<3)return '<span class="dim">–</span>';
+  const w=66,h=18,mn=Math.min(...vals),mx=Math.max(...vals),rg=mx-mn||1;
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1)*w).toFixed(1)},${(h-(v-mn)/rg*h).toFixed(1)}`).join(' ');
+  const up=vals[vals.length-1]>=vals[0];
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle"><polyline points="${pts}"
+    fill="none" stroke="${up?'#16c784':'#ea3943'}" stroke-width="1.5"
+    stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+function sparkVol(vals){
+  if(!vals||vals.length<3)return '<span class="dim">–</span>';
+  const w=66,h=18,mx=Math.max(...vals)||1,n=vals.length,bw=w/n;
+  const bars=vals.map((v,i)=>{const bh=Math.max(1,v/mx*h);
+    return `<rect x="${(i*bw).toFixed(1)}" y="${(h-bh).toFixed(1)}" width="${(bw-.6).toFixed(1)}"
+      height="${bh.toFixed(1)}" fill="${i>=n-4?'#f0b90b':'#33415c'}"/>`}).join('');
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle">${bars}</svg>`;
+}
+function render(){
+  const rows=sortRows(S.rows.slice()),tb=$('tb');
+  $('hSpark').textContent=S.mode==='surge'?'15m volume':'15m trend';
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="13" class="empty">No pairs match. Loosen <b>min volume</b>'+
+      (S.mode==='24h'?' or <b>min range pos</b>':'')+', or raise <b>scan depth</b>.</td></tr>';
+    return;}
+  const nowSet=new Set(rows.map(r=>r.symbol));
+  tb.innerHTML=rows.map(r=>{
+    const d=r.deep,isNew=!S.first&&!S.seen.has(r.symbol),isHit=S.hits.has(r.symbol);
+    const base=r.symbol.replace(/(USDT|USDC|BTC|ETH)$/,''),quote=r.symbol.slice(base.length);
+    let b='';
+    if(isNew)b+='<span class="badge b-new">NEW</span>';
+    if(d&&d.coil)b+='<span class="badge b-coil">COIL</span>';
+    if(d&&d.stack)b+='<span class="badge b-stack">STACK</span>';
+    if(d&&d.volSurge>=2)b+='<span class="badge b-surge">SURGE</span>';
+    if(d&&d.mom1h<-1.5)b+='<span class="badge b-fade">FADE</span>';
+    const sc=r._s,col=sc>=70?'var(--up)':sc>=50?'var(--warn)':'var(--dim)';
+    return `<tr class="${isHit?'hit':isNew?'pulse':''}">
+      <td class="l c-sym"><span class="sym">${base}</span><span class="q">/${quote}</span>${b}</td>
+      <td class="scorecell c-score" data-l="score" style="color:${col}">${sc.toFixed(0)}
+        <span class="bar"><i style="width:${sc}%;background:${col}"></i></span></td>
+      <td class="c-price" data-l="px">${fmtPrice(r.price)}</td>
+      <td class="c-24h ${cls(r.chg24h)}" data-l="24h">${sign(r.chg24h)}%</td>
+      <td class="c-4h ${d?cls(d.mom4h):'dim'}" data-l="4h">${d?sign(d.mom4h)+'%':'–'}</td>
+      <td class="c-1h ${d?cls(d.mom1h):'dim'}" data-l="1h">${d?sign(d.mom1h)+'%':'–'}</td>
+      <td class="c-surge ${d?(d.volSurge>=1.5?'up':d.volSurge<0.8?'down':''):'dim'}" data-l="surge">${d?d.volSurge.toFixed(2)+'×':'–'}</td>
+      <td class="c-vol" data-l="vol">$${fmtVol(r.vol)}</td>
+      <td class="c-pos" data-l="pos"><span class="rp"><i style="left:${clamp(r.rangePos,0,96)}%"></i></span>
+        <span class="${r.rangePos>=70?'up':r.rangePos<40?'down':'dim'}"> ${r.rangePos.toFixed(0)}%</span></td>
+      <td class="c-spread ${r.spread<=0.2?'':'dim'}" data-l="spread">${r.spread.toFixed(2)}%</td>
+      <td class="c-hi ${d?(d.pull>-2?'up':d.pull<-6?'down':'dim'):'dim'}" data-l="from hi">${d?d.pull.toFixed(1)+'%':'–'}</td>
+      <td class="l c-spark">${S.mode==='surge'?sparkVol(d&&d.vspark):sparkLine(d&&d.spark)}</td>
+      <td class="l c-trade"><a class="tl" target="_blank" rel="noopener"
+        href="https://www.bitget.com/spot/${r.symbol}">chart ↗</a></td></tr>`;
+  }).join('');
+  S.seen=nowSet;S.first=false;
+  document.querySelectorAll('th[data-k]').forEach(th=>th.classList.toggle('act',th.dataset.k===S.sortK));
+}
+
+$('legend').innerHTML=`
+<b>Rank by</b> — <b>24h</b> classic gainers · <b>4h</b>/<b>1h</b> rank on recent momentum and ignore the 24h-change filters, so coins flat on the day but moving now can surface · <b>Vol surge</b> ignores price entirely and ranks on volume expansion alone.<br>
+<b>Vol surge</b> — last hour of 15m volume vs the prior five hours. Above 1.5× money is entering now; below 0.8× the move is over regardless of how green 24h looks.<br>
+<b>Range pos</b> — where price sits in its 24h band. Near 100% = holding highs. <b>From hi</b> = drawdown off the 4h high.<br>
+<b>Badges</b> — <span class="badge b-stack">STACK</span> price&gt;EMA9&gt;EMA21 · <span class="badge b-surge">SURGE</span> volume&gt;2× · <span class="badge b-coil">COIL</span> heavy volume, price flat (accumulation) · <span class="badge b-new">NEW</span> just entered the list · <span class="badge b-fade">FADE</span> 1h negative despite a green 24h.<br>
+<b>Forward test log</b> \u2014 records every pair as it crosses your score threshold, then scores it against BTC an hour and four hours later. It is the only part of this app that can tell you whether the other parts work.<br>
+<b>Market breadth</b> \u2014 share of the top 22 liquid majors (stables and metals excluded) that are green on the hour. This is the regime gauge: <b>24h advancers</b> can read 80% while 1h breadth reads 5%, because the 24h number lags a turn by hours. Trade the 1h number.<br>
+<b>Scan depth</b> — how many pairs get 15m candles pulled. Higher = better coverage on 1h/4h/surge modes, more requests. The screener cannot deep-scan all 1,200 pairs, so it pre-selects a slice; in 1h/4h that pre-selection uses range position, which can miss a coin surging off a deep low.<br>
+Public Bitget data, no API key, nothing leaves your browser. A screener finds candidates, not trades — confirm on the chart. Not financial advice.`;
+
+/* ================= wiring ================= */
+function schedule(){clearInterval(S.timer);if(S.autoOn)S.timer=setInterval(run,30000)}
+loadCfg();
+$('btnAuto').className=S.autoOn?'on':'';$('btnAuto').textContent=S.autoOn?'Auto 30s':'Auto OFF';
+$('btnAlert').className=S.alertOn?'on':'';$('btnAlert').textContent='🔔 Alerts: '+(S.alertOn?'ON':'OFF');
+if(S.alertOn)S.arm=true;   // a fresh load always re-baselines
+$('btnUpOnly').className=S.upOnly?'on':'';
+$('btnSound').className=S.soundOn?'on':'';
+document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on',b.dataset.m===S.mode));
+modeFilterState();renderFeed();
+
+loadLog();
+$('btnLog').onclick=()=>{S.logOpen=!S.logOpen;
+  $('logPanel').classList.toggle('show',S.logOpen);
+  $('btnLog').className=S.logOpen?'on':'';
+  if(S.logOpen)renderLog()};
+$('btnLogClear').onclick=()=>{
+  if(!confirm(`Delete all ${S.log.length} logged entries? This cannot be undone.`))return;
+  S.log=[];saveLog();renderLog()};
+$('btnLogExport').onclick=()=>{
+  const blob=new Blob([JSON.stringify(S.log,null,1)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='bitget-screener-log.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000)};
+$('btnCrypto').className=S.cryptoOnly?'on':'';
+$('btnCrypto').onclick=e=>{S.cryptoOnly=!S.cryptoOnly;e.target.className=S.cryptoOnly?'on':'';
+  e.target.textContent=S.cryptoOnly?'Crypto only':'Incl. stocks';
+  S.cover.clear();S.cursor=0;saveCfg();run()};
+$('btnFilters').onclick=()=>{
+  const open=!document.querySelector('.bar-row').classList.contains('open');
+  ['.bar-row','.alerts','.hint'].forEach(sel=>
+    document.querySelector(sel).classList.toggle('open',open));
+  $('btnFilters').className=open?'on':'';
+};
+$('btnNow').onclick=run;
+$('btnAuto').onclick=e=>{S.autoOn=!S.autoOn;e.target.className=S.autoOn?'on':'';
+  e.target.textContent=S.autoOn?'Auto 30s':'Auto OFF';saveCfg();schedule()};
+$('btnAlert').onclick=e=>{S.alertOn=!S.alertOn;e.target.className=S.alertOn?'on':'';
+  e.target.textContent='🔔 Alerts: '+(S.alertOn?'ON':'OFF');
+  if(S.alertOn){S.lastAlert.clear();S.arm=true;S.feed=[];beep(false)}  // click unlocks audio
+  saveCfg();renderFeed()};
+$('btnSound').onclick=e=>{S.soundOn=!S.soundOn;e.target.className=S.soundOn?'on':'';
+  if(S.soundOn)beep(false);saveCfg()};
+$('btnUpOnly').onclick=e=>{S.upOnly=!S.upOnly;e.target.className=S.upOnly?'on':'';
+  if(S.alertOn){S.lastAlert.clear();S.arm=true}saveCfg();renderFeed()};
+document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#modes button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');S.mode=b.dataset.m;S.sortK='score';S.cursor=0;S.cover.clear();
+  if(S.mode!=='24h'&&num($('fDepth').value)<60)$('fDepth').value=75;
+  modeFilterState();saveCfg();run()});
+FIELDS.forEach(f=>$(f).addEventListener('change',()=>{saveCfg();
+  if(f==='lMin'){renderLog();return}
+  if(['aScore','aSurge','aCool'].includes(f)){
+    if(S.alertOn){S.lastAlert.clear();S.arm=true}
+    renderFeed();return}
+  run()}));
+document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+  const k=th.dataset.k;
+  if(S.sortK===k)S.sortD*=-1;else{S.sortK=k;S.sortD=-1}
+  saveCfg();render()});
+schedule();run();
+</script>
+</body>
+</html>

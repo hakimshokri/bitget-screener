@@ -205,6 +205,7 @@ a.tl:hover{opacity:1;text-decoration:underline}
   <div class="f" id="wPos"><label>Min range pos %</label><input id="fPos" type="number" value="55" step="5"></div>
   <div class="f"><label>Max spread %</label><input id="fSpread" type="number" value="3" step="0.1"></div>
   <div class="f off" id="wBase"><label>🌱 max base width %</label><input id="fBase" type="number" value="7" step="1"></div>
+  <div class="f off" id="wBaseV"><label>🌱 min surge ×</label><input id="fBaseV" type="number" value="1.8" step="0.2"></div>
   <div class="f off" id="wIgMin"><label>⚡ min spike ×</label><input id="fIgMin" type="number" value="2.5" step="0.5"></div>
   <div class="f"><label>Liquidity</label>
     <div class="seg" id="liq">
@@ -334,10 +335,11 @@ function modeFilterState(){
   const m=S.mode;
   $('wChg').classList.toggle('off',m!=='24h');
   $('wChgMax').classList.toggle('off',m!=='24h');
-  $('wPos').classList.toggle('off',m==='surge'||m==='4h'||m==='1h');
+  $('wPos').classList.toggle('off',m==='surge'||m==='4h'||m==='1h'||m==='1m');
   $('modeHint').innerHTML=MODES[m].hint;
   const ig=m==='ignite';
   $('wBase').classList.toggle('off',m!=='early');
+  $('wBaseV').classList.toggle('off',m!=='early');
   $('wIgMin').classList.toggle('off',!ig); $('wIgA').classList.toggle('off',!ig);
   document.getElementById('aScore').parentElement.classList.toggle('off',ig);
   document.getElementById('aSurge').parentElement.classList.toggle('off',ig);
@@ -348,7 +350,7 @@ function modeFilterState(){
 }
 
 /* ================= persistence ================= */
-const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge','fSize','fBase'];
+const FIELDS=['fQuote','fVol','fChg','fChgMax','fPos','fSpread','fDepth','fRows','aScore','aSurge','aCool','lMin','fIgMin','aIgAge','fSize','fBase','fBaseV'];
 function saveCfg(){const o={};FIELDS.forEach(f=>o[f]=$(f).value);
   Object.assign(o,{mode:S.mode,autoOn:S.autoOn,alertOn:S.alertOn,soundOn:S.soundOn,cryptoOnly:S.cryptoOnly,upOnly:S.upOnly,
     sortK:S.sortK,sortD:S.sortD});
@@ -812,7 +814,7 @@ async function run(){
 
     let short;
     if(S.mode==='early'){
-      pass=pass.filter(r=>r.chg24h<25&&r.rangePos>=70);
+      pass=pass.filter(r=>r.chg24h<25&&r.rangePos>=num($('fPos').value));
       pass.sort((a,b)=>b.rangePos-a.rangePos||b.vol-a.vol);
       short=pass.slice(0,depth);
     } else if(S.mode==='1m'){
@@ -863,11 +865,17 @@ async function run(){
       univ.sort((a,b)=>(age(a)-age(b))||(rat(b)-rat(a)));
     } else if(S.mode==='early'){
       const maxB=num($('fBase').value)||7;
+      const cand=univ.filter(r=>r.deep&&r.deep.base);
+      S.earlyStats={scanned:cand.length, maxB:maxB, minV:(num($('fBaseV').value)||1.8),
+        base:cand.filter(r=>r.deep.base.tight<=maxB).length,
+        brk:cand.filter(r=>r.deep.base.brk>0).length,
+        vol:cand.filter(r=>r.deep.volSurge>=(num($('fBaseV').value)||1.8)).length, pass:0};
       univ=univ.filter(r=>r.deep&&r.deep.base
         && r.deep.base.tight<=maxB          // it was actually coiled
         && r.deep.base.brk>0                // and it is now above that base
         && r.chg24h<25                      // measured: >25% underperforms by ~10%
-        && r.deep.volSurge>=1.8);           // on real volume
+        && r.deep.volSurge>=(num($('fBaseV').value)||1.8));   // on real volume
+      S.earlyStats.pass=univ.length;
       univ.sort((a,b)=>b._s-a._s);
     } else if(S.mode==='1m'){
       univ=univ.filter(r=>r.deep&&r.deep.c1!=null);
@@ -1041,6 +1049,16 @@ function render(){
       <td class="l c-trade"><a class="tl" target="_blank" rel="noopener"
         href="https://www.bitget.com/spot/${r.symbol}">chart ↗</a></td></tr>`;
   }).join('');
+  if(S.mode==='early'&&S.earlyStats){
+    const e=S.earlyStats;
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td colspan="16" style="padding:9px 12px;color:var(--dim2);font-size:11px;
+        border-bottom:none;text-align:left;font-family:inherit">
+        Of <b>${e.scanned}</b> scanned near their highs: <b>${e.base}</b> had a base under
+        ${e.maxB}% wide, <b>${e.brk}</b> were actually above that base, <b>${e.vol}</b> had
+        volume over ${e.minV}\u00d7 \u2014 <b>${e.pass}</b> passed all three.
+        A short list here usually means few genuine breakouts, not a broken filter.</td></tr>`);
+  }
   S.seen=nowSet;S.first=false;
   document.querySelectorAll('th[data-k]').forEach(th=>th.classList.toggle('act',th.dataset.k===S.sortK));
 }
